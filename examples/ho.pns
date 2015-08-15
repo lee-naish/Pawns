@@ -1,0 +1,417 @@
+% various higher order things
+
+test :: void -> void
+    sharing test(vd)=vd1
+    pre nosharing
+    post nosharing.
+test(q) = {
+    % XXX old-style var declarationsa - will be error some time
+    (v0 :: f0);
+    (v2 :: f2);
+    (v2s :: list(f2));
+    (v3 :: f3);
+    % v0 = foo3 is a postcond violation because when v0 is called
+    % we will assume no sharing is added but for foo3 there may be
+    % v0 = foo3; % XX
+    % v3 = foo0 is a precond violation because we may call v3 with the
+    % args shared, but foo0 needs there to be no sharing
+    % v3 = foo0; % XX
+    v1 = foo2; % OK
+    % v2 = foo1 violates both pre and postconditions
+    % v2 = foo1; % XX
+    v2s = cons(foo1, nil); % XX as above foo1 violates both pre and post
+    n1 = nil;
+    xs = zw0(foo0, n1, n1); % ok
+    % ys = zw0(foo3, n1, n1); % XX foo3 in arg is a postcond violation
+    mbs = cons(nothing, nil);
+    mbs1 = cons(nothing, mbs);
+    c1 = zw0(foo0, mbs1); % c1.cla(2) shares with bs1
+    xs1 = c1(nil);
+    c2 = zw0(foo3); % XX postcond violation
+    xs2 = c2(nil, nil);
+    return
+}.
+
+test1 :: void -> void
+    sharing test(vd)=vd1
+    pre nosharing
+    post nosharing.
+test1(vvv) = {
+    m1 = just(true);
+    xs1 = cons(true, nil);
+    cl1 = hoo5(m1);
+    cl2 = cl1;
+    cl3 = cl1(xs1);
+    cl4 = cl3(true);
+    cases m1 of {
+    case just(*bp):
+        *!bp := false !m1 % !cl2!cl4 % XX (cl1 dead)
+    };
+    cl5 = cl2(xs1); % dummy use of cl2
+    cases xs1 of {
+    case cons(*hp, *tp):
+        *!hp := false !xs1 % !cl4 % XX
+    };
+    xs2 = cl4(42); % closure has enough args now
+    cases xs1 of {
+    case cons(*hp1, *tp1):
+        *!hp1 := false !xs1 % !xs2 % XX result of cl4(42) shares with xs1
+    };
+    xs3 = xs2; % dummy use of xs2
+    return
+}.
+
+% XXX crazy if id and not aren't defined
+test2 :: void -> void
+    sharing test(vd)=vd1
+    pre nosharing
+    post nosharing.
+test2(vvv) = {
+    (zsp :: ref(list(bool))); % required for below
+    *zsp = nil;
+    *!zsp := cons(true, nil);
+
+    *fp = id;       % polymorphic fn
+    i = *fp;
+    b = i(true);
+    n = i(42);
+    *!fp := not;    % XX smash with instance of original type
+    assign(!fp, not); % XX same
+    i1 = *fp;
+    b = i1(true);
+    n = i1(42)
+}.
+
+% example showing eta-conversion does not preserve equivalence wrt
+% sharing and (therefore) destructive update
+test3 :: bool -> pair(bool,bool).
+test3(b) = {
+    m = just(true);
+    f = maybenot(m);
+    f1 = maybenot1(m);
+    cases m of {
+    case just(*bp):
+        *!bp := false;  % !f % XX smashes f but not f1
+        return(pair(f(b), f1(b)))
+    }
+}.
+
+% currently pre/post conds are not type checked until they are used -
+% maybe this should change
+test4 :: T1 -> T2 -> T1
+    sharing f0(b1, b2) = rb
+    pre b1 = b2     % XX type error
+    % pre nosharing
+    post rb = b1.
+test4(x, y) = x.
+
+type mb = maybe(bool).
+type mbs = list(mb).
+type wf0 ---> w(f0).
+
+type f0 = (mb -> mb -> mb sharing
+    f0(b1, b2) = rb
+    pre nosharing
+    post nosharing).
+type f1 = (mb -> mb -> mb sharing
+    f1(b1, b2) = rb
+    pre nosharing
+    post rb = b1).
+type f2 = (mb -> mb -> mb sharing
+    f2(b1, b2) = rb
+    pre  b1 = b2
+    post nosharing).
+type f3 = (mb -> mb -> mb sharing
+    f3(b1, b2) = rb
+    pre  b1 = b2
+    post rb = b1).
+
+foo0 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo0(b1,b2)=rb
+    pre nosharing
+    post nosharing.
+foo0(b1, b2) = {
+    return( nothing)
+}.
+
+foo1 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo1(b1,b2)=rb
+    pre nosharing
+    post rb=b1.
+foo1(b1, b2) = {
+    return( nothing)
+}.
+
+foo2 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo2(b1,b2)=rb
+    pre b1=b2
+    post nosharing.
+foo2(b1, b2) = {
+    return( nothing)
+}.
+
+foo3 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo3(b1,b2)=rb
+    pre b2=b1
+    post (b1=b2; rb=b1).
+foo3(b1, b2) = {
+    return( nothing)
+}.
+
+% note: returns fn
+foo4 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo4(b1,b2)=rb
+    pre b2=b1
+    post nosharing.
+foo4(b1) = {
+    foo4(b1)
+}.
+
+% note: returns fn
+foo5 :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo5(b1,b2)=rb
+    pre b2=b1
+    post rb=b1.
+foo5(b1) =
+%    foo3(b1). % XXX violates postcond
+    foo1(b1). % XXX violates precond
+
+zw0 :: f0 -> mbs -> mbs -> mbs
+    sharing zw0(f,mbs1,mbs2)=rbs
+    pre nosharing
+    post nosharing.
+zw0(f, mbs1, mbs2) = {
+    cases  mbs1 of {
+    case nil:
+        return( nil)
+    case cons(mb1, mbs11):
+        cases  mbs2 of {
+        case nil:
+            return( nil)
+        case cons(mb2, mbs21):
+            rmbs1 = zw0(f, mbs11, mbs21);
+            mb3 = f(mb1, mb2);
+            rmbs = cons(mb3, rmbs1);
+            return( rmbs)
+        }
+    }
+}.
+
+
+map :: gp(T1, T2) -> list(T1) -> list(T2)
+    sharing map0(f,mbs1)=mbs
+    pre nosharing
+    post nosharing.
+map(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map(f, mbs1))
+    }
+}.
+
+map0 :: g0 -> mbs -> mbs
+    sharing map0(f,mbs1)=mbs
+    pre nosharing
+    post nosharing.
+map0(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map0(f, mbs1))
+    }
+}.
+
+map1 :: g1 -> mbs -> mbs
+    sharing map0(f,mbs1)=mbs
+    pre nosharing
+    post mbs=mbs1.
+map1(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map1(f, mbs1))
+    }
+}.
+
+% goo0 :: g0. % XXX should support (but use !g0 ???)
+goo0 :: mb -> mb sharing
+    g0(mb1) = mb
+    pre nosharing
+    post nosharing.
+goo0(b1) = {
+    goo0(b1)
+}.
+
+% goo1 :: g1.
+goo1 ::mb -> mb sharing
+    g1(mb1) = mb
+    pre nosharing
+    post mb = mb1.
+goo1(b1) = {
+    goo1(b1)
+}.
+
+type g1 = (mb -> mb sharing
+    g1(mb1) = mb
+    pre nosharing
+    post mb = mb1).
+
+type g0 = (mb -> mb sharing
+    g0(mb1) = mb
+    pre nosharing
+    post nosharing).
+
+type gp(T1, T2) = (T1 -> T2 sharing
+    gp(mb1) = mb
+    pre nosharing
+    post nosharing).
+
+
+
+type h4 = (mb -> mb -> bool -> bool -> mb sharing
+    f4(b1, b2, b3, b4) = rb
+    pre  b1 = b2
+    post rb = b2).
+
+% XXX hoo4 :: h4.
+hoo4 :: mb -> mb -> bool -> bool -> mb sharing
+% sa(t=true;j=just(t);a=hoo4;b=a(j);c=b(j);d=c(t);e=d(t)).
+% hoo4 :: mb -> list(bool) -> bool -> int -> list(bool) sharing
+    f4(b1, b2, b3, b4) = rb
+    pre nosharing
+    post rb = b2.
+hoo4(b1, b2, b3, b4) = 
+    % hoo4(b1, b2, b3, b4).
+    b2.
+
+hoo5 :: mb -> list(bool) -> bool -> int -> list(bool)
+    sharing f4(b1, b2, b3, b4) = rb
+    pre nosharing
+    post rb = b2.
+hoo5(b1, b2, b3, b4) =
+    % hoo5(b1, b2, b3, b4).
+    b2.
+
+id :: T -> T
+    sharing id(x) = y
+    pre nosharing
+    post y=x.
+id(x) = x.
+
+assign :: ref(T) -> T -> void
+    sharing assign(!xp, y) = v % XXX should have !y if pre y = *xp?
+    pre y = *xp
+    post y = *xp.
+assign(xp, y) = {
+    *!xp := y;
+    return
+}.
+
+% not :: bool -> bool
+%     sharing not(x) = y
+%     pre nosharing
+%     post nosharing.
+% not(x):
+%     cases x of {
+%     case true: false
+%     case false: true
+%     ).
+
+const :: A -> B -> A
+    sharing const(a, b) = r
+    pre nosharing
+    post r = a.
+const(a, b) = a.
+
+% For type maybe(bool) -> bool -> bool the default/implicit sharing is
+% that if called with a single arg, a closure is created and there can be
+% sharing with the arg of the maybe inside the closure, so the closure
+% can potentially be destructively updated.  Thats what can happen with
+% this function.
+% The explicit type (ignoring abstract sharing) is
+%     maybe(bool) -> (
+%         bool -> bool
+%         sharing f(m::maybe(bool), b) = r
+%         pre nosharing
+%         post nosharing
+%     }
+%     sharing f(m, b) = r
+%     pre nosharing
+%     post r = closure(m)
+maybenot :: maybe(bool) -> bool -> bool.
+maybenot(m, b) = {
+    cases m of {
+    case just(b1): b1
+    case nothing: not(b)
+    }
+}.
+
+% eta-equivalent to maybenot. This function doesn't create a
+% closure with a maybe which can have the arg shared, so we can have
+% more precise sharing info declared.  Although the closure const(b1)
+% can be returned, its argument is a bool, which is atomic and therefore
+% can't be shared.
+% There is a subtlety wrt types here.  The (partly implicit) declared
+% return type (when given a single argument) is:
+%  bool -> bool sharing f(a1::mb,a2)=r pre (a1=abstract;a2=abstract) post
+%  (r=abstract;a1=abstract;a2=abstract)
+% Hmm, perhaps the "nosharing" in the outer type is best (by default)
+% inherited into the inner type, but we would have something similar if
+% maybenot1 had pre m = abstract.
+% a2 is a bool so there is no sharing but a1 has sharing with self and
+% abstract in precondition.
+% There are two places where we return something.
+% const(b1) (in this context) has type:
+%  bool -> bool sharing f(a::bool,b)=r pre nosharing post r=a
+% The sharing conditions are equivalent to nosharing.
+% not has type:
+%  bool -> bool sharing f(a1)=r pre a1=abstract post
+%  (r=abstract;a1=abstract)
+% The sharing conditions are equivalent to nosharing.
+% For both these cases there is a single closure argument explicit.
+% Implicitly, all other preceeding closure arguments could share with
+% anything in the preconditions.  We need to use this implicit sharing
+% to determine the value returned has a type as general as that
+% declared.
+
+% maybenot1 :: maybe(bool) -> bool -> bool. % OK but less precise
+maybenot1 :: maybe(bool) -> (bool -> bool)
+    sharing maybenot1(m) = f
+    pre nosharing
+    post nosharing. % no sharing with closure/function returned
+maybenot1(m) = {
+    cases m of {
+    case just(b1): const(b1)
+    case nothing: not
+    }
+}.
+
+%     % post (p = pair(a1, a2); r = a1; r = a2). % broken now
+%     post (
+%         cases p of {
+%         case pair(a1, a2): r = a1; r = a2 )).
+
+/*
+
+hoo4 :: mb -> mb -> bool -> bool -> mb sharing ??
+XX dont actually need these closure args - 'nothing' is atomic and
+will be copied so there can't be any external sharing (or update),
+even though there is sharing between the closures.  Should do no harm
+though?  May need to include in pre/postconds in rare cases.  The thing
+is, there is sharing but there is no way to get at a closure arg, or get
+a pointer to it, so its safe from DU (there is no case matching for
+closures).
+
+?- sa(x=hoo4;y=x(nothing);z=y(nothing)).
+[s(y,z.cla(2)),s(y.cla(1),y.cla(1)),s(z.cla(1),z.cla(1))]
+
+a(t=true;j=just(t);l=cons(true,nil);a=hoo5;b=a(j);c=b(l);d=c(t);e=d(3)).
+sa(t=true;j=just(t);a=hoo5;b=a(j);c=b(nil);d=c(t);e=d(3)).
+sa(t=true;j=just(t);a=hoo5;b=a(j);c=b(cons(true,nil));d=c(t);e=d(3)).
+
+*/
+

@@ -1,0 +1,193 @@
+% Simple WAM-style term representation/manipulation
+
+% type for terms (ignore ints and other special builtin types):
+% Terms are non-vars nv(fs, terms) where fs represents the function
+% symbol (its name and arity, perhaps represented by a pointer
+% into a name table) and terms is the list of the arguments,
+% (best specialised for different arities, and/or use an array of terms)
+% or variables, var(term), where term is the what the term is bound to.
+% Unbound variables are represented as cyclic terms: *p == var(*p)
+% (Andrew Taylor's scheme can use the same type, with longer cycles)
+% 
+% The representation will be typically be a tagged pointer.  Hopefully
+% the tag for vars will be zero (so they are just raw pointers) and for
+% non-var terms the tag will be 1).
+type term --->
+    var(term) ;
+%    nv0(fs) ;                   % arity 0 function symbol
+%    nv1(fs, term) ;             % arity 1 function symbos
+%    nv2(fs, term, term) ;       % ...
+%    nv3(fs, term, term, term) ;
+%    ...
+    nv(fs, terms).              % general case
+type terms = list(term).
+type fs ---> f0 ; f1 ; f2. % XXX
+
+% unify two (pointers to) terms
+% For unify and deref it seems most convenient to use pointers
+% to terms rather than terms.  They are essentially the same thing at
+% the implementation level (for unbound vars at least) but with pointers
+% you can directly assign (and compare with the argument of var/1),
+% which can't be done with plain terms. It also allows us to shorten
+% reference chains a bit more.  For example, with Prolog X=Y, f(X)=f(Z)
+% we get something like nv(f,[x=var(*yp=var(*yp))] and nv(f,[*zp=var(*zp)])
+% and when we unify we want the first to become nv(f,[*zp=var(*zp)])
+% rather than nv(f,[x=var(*zp=var(*zp))] ie, we want pointers to x and z
+% passed to the recursive call to unify rather than x and y so we can
+% update the argument of f/1 directly rather than use an indirection.
+% (Essential for the Andrew Taylor "Parma" variable representation)
+unify :: ref(term) -> ref(term) -> bool
+    sharing unify(!pa,!pb)=r
+    pre pa=pb
+    post nosharing.
+unify(pa, pb) = {
+    % *!pa := tderef(pa);  % could use pa1 = tderef(pa) - using :=
+    % *!pb := tderef(pb);  % here can shorten reference chains
+    dpa = tderef(pa) !pa!pb;
+    dpb = tderef(pb) !pa!pb!dpa;
+    cases *dpa of {
+    case var(*p1):
+        *!dpa := *pb !pa!pb;
+        true
+    case nv(fsa, aas):
+        cases *dpb of {
+        case var(*p1):
+            *!dpb := *pa !pb!pa;
+            true
+        case nv(fsb, bas):
+            if fs_eq(fsa, fsb) then
+                unify_all(!aas, !bas) !pa!pb
+            else
+                false
+        }
+    }
+}.
+
+% unifies elements of two lists (assumes same length)
+unify_all :: list(term) -> list(term) -> bool
+    sharing unify_all(!cs,!bs)=r
+    pre cs=bs
+    post nosharing.
+unify_all(cs, bs) = {
+    cases cs of {
+    case nil:
+        true
+    case cons(*c, *cs1):
+        cases bs of {
+        case cons(*b, *bs1):
+            r = unify(!c, !b) !cs!bs!bs1!cs1;
+            if r then {
+                dcs1 = *cs1;
+                dbs1 = *bs1;
+                unify_all(!dcs1, !dbs1) !cs!bs
+            } else
+                false
+        }
+    }
+}.
+
+% dereference a pointer to a term - returns a pointer to a nonvar term
+% or a var which points to itself
+% p0 not modified but we need store view for eq_ptr
+tderef :: ref(term) -> ref(term)
+    sharing tderef(!p0)=p
+    pre nosharing
+    post p=p0.
+tderef(p0) = {
+    cases *p0 of {
+    case var(*p1):
+        if eq_ptr(!p0, !p1) then
+            p0
+        else
+            tderef(!p1) !p0
+    case nv(fs, p2):
+        p0
+    }
+}.
+
+% returns new unbound variable
+% Currently uses dodgey uninitialised var (will be an error at some
+% stage).  One option is to add a constant to the type to init the var
+newvar :: void -> term
+    sharing newvar(v)=t
+    pre nosharing
+    post nosharing.
+newvar(v) = {
+    % *p = var(*p1=nv(dummyval, nil)); % want to support this syntax
+    % *p = var(*p1= *p1);               % or this + check p1 assigned?
+    % *!p1 := p !p;
+    % *p = var(*p1= *p);                % or this
+    % return(*p)
+    % *p = var(nv(f1, nil));
+    (dummy :: term); % uninitialised XXX
+    % dummy = dummy; % uninitialised var
+    *p = var(dummy);
+    cases *p of {
+    case var(*p1):
+        *!p1 := *p !p!dummy;
+        return(*p)
+    }
+}.
+
+print_term :: ref(term) -> void
+    sharing print_term(!p0)=voidvar % no DU
+    pre nosharing
+    post nosharing.
+print_term(p0) = {
+    dp0 = tderef(!p0);
+    cases *dp0 of {
+    case var(*dp1):
+        print_var(dp0);
+        return
+    case nv(fs, ts):
+        print_fs(fs);
+        print_terms(!ts) !p0; % no DU
+        return
+    }
+}.
+
+print_terms :: list(term) -> void
+    sharing print_terms(!ts)=voidvar % no DU
+    pre nosharing
+    post nosharing.
+print_terms(ts) = {
+    cases ts of {
+    case nil:
+        return
+    case cons(*t, *ts1):
+        print_term(!t) !ts!ts1;
+        print_terms(*!ts1) !ts;
+        return
+    }
+}.
+
+% stubs - we currently need to have definitions so its known these are
+% functions, as we also know the arity
+
+print_var :: ref(term) -> void
+    sharing print_var(p0)=voidvar
+    pre nosharing
+    post nosharing.
+print_var(x) = void.
+
+print_fs :: fs -> void
+    sharing print_fs(p0)=voidvar
+    pre nosharing
+    post nosharing.
+print_fs(x) = void.
+
+% STUB - should be builtin
+fs_eq :: fs -> fs -> bool
+    sharing fs_eq(p0,p1)=r
+    pre nosharing
+    post nosharing.
+fs_eq(x, y) = true.
+
+% STUB - should be builtin
+% args are banged because we need low level view (they are not modified
+% though)
+eq_ptr :: ref(term) -> ref(term) -> bool
+    sharing eq_ptr(!p0,!p1)=r
+    pre p0=p1
+    post nosharing.
+eq_ptr(x, y) = true.

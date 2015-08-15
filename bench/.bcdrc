@@ -1,0 +1,2 @@
+alias mkT='make all ; make times >& Times30000'
+alias mT='more Times30000'

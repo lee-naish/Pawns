@@ -1,0 +1,44 @@
+Pawns: a declarative/imperative language
+(Pointer Assignment Without Nasty Surprises)
+Initial development by Lee Naish
+
+See http://people.eng.unimelb.edu.au/lee/papers/pawns/ for an informal
+introduction to the language (not necessarily up to date, or presented
+particularly well, and the syntax is not what is supported).
+
+http://people.eng.unimelb.edu.au/lee/papers/pawnsshare/ has a paper on
+the sharing analysis done in the compiler (the src version here is less up
+to date than the paper and has several known bugs, meaning you can write
+dodgey code and the compiler won't complain as it should).
+
+The system is also not packaged well currently.
+
+It needs
+
+1) SWI-Prolog:
+sudo apt-get install swi-prolog-nox
+
+2) Boehm++ garbage collector:
+sudo apt-get install libgc-dev
+
+3) adtpp/adt4c tool installed in ~/bin/adtpp:
+sudo apt-get install git
+git clone https://github.com/cjack/Adt4c
+cd Adt4c/src
+make install
+(a more up to date version is at
+https://bitbucket.org/Macnaa/adt4c-with-polymorphism.git)
+
+4) pawns.h in current dir
+
+5) gcc (other C compilers should be ok also)
+
+--------------------------------------------------------------
+We currently have
+
+compiler: source for compiler
+
+examples: example Pawns code (with makefile and other files needed etc)
+
+bench: some benchmarks (binary tree insertion...) in various languages
+

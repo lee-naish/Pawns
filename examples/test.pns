@@ -1,0 +1,101 @@
+% more testing of sharing analysis subtleties
+% syntax munged?
+
+type cb ---> leaf(rrb) ; branch(cb, cb).
+type rb = ref(bool).
+type rrb = ref(rb).
+
+proc test1(void:: v)
+    pre nosharing
+    post nosharing.
+test1(v) = {
+    bool:: * *aax = true;
+    bool:: * *ay = false;
+    cb:: l = leaf(aax);
+    cb:: r = leaf(ay);
+    cb:: t = branch(l, r);
+    cases cb:: t of {
+    case branch(zl1, zr1):          % zl1=l, zr1=r
+        cases cb:: zl1 of {
+        case leaf(zx1):            % zx1=aax
+            cases cb:: zr1 of {
+            case leaf(zy1):        % zy1=ay
+                rb:: *!zx1 := *zy1 !aax!zl1!zr1!l!r!t!zy1!ay
+            }
+        }
+    };
+    ref(bool):: aaxp = *aax;
+    bool:: *!aaxp := true !l!t!aax!zl1!zx1!zr1!zy1!ay!r;
+    bool:: * *!aax := true !l!t!aaxp!r!zl1!zr1!zx1!zy1!r!ay;
+    return
+}.
+
+% bool:: tmp = true
+/*
+    bool:: * *a = true;
+    bool:: * *b = false;
+
+sa((
+    ref(ref(bool))::aa = a;
+    ref(bool):: *!a := *b; % !aa;
+    bool:: * *!a := false !aa; % XXX !b needed
+bool:: tmp = true)).
+
+sa((bool:: *rt = true;
+    ref(bool):: *rrt = rt;
+    ref(ref(bool)):: rrt1 = rrt;
+    bool:: *rf = false;
+    ref(bool):: *rrt := rf)).
+
+% XX next example shows old(?) sharing anal too conservative:
+% because p shares with j at := we don't throw away some sharing,
+% whereas for next example below there isn't any.
+% for both, sharing for q is not thrown away but new is added
+sa((
+    (p:: ref(pair(maybe(bool),maybe(bool))));
+    j = just(true);
+    *p = pair(nothing,j);
+    *q = *p;
+    *p := pair(j,nothing)
+)).
+
+sa((
+    (p:: ref(pair(maybe(bool),maybe(bool))));
+    j = just(true);
+    k = just(true);
+    *p = pair(nothing,j);
+    *q = *p;
+    *p := pair(k,nothing)
+)).
+
+% similar to 2 above but we have q = p instead of *q = *p, so
+% we get q.ref.pair/2.1.ref.just.ref in sharing.  We must also keep
+% q.ref.pair/2.2.ref.just.ref if we only know there is possible
+% sharing between q and p (not definite).  Because *p is assigned
+% we would be able to avoid p.ref.pair/2.2.ref.just.ref in sharing
+% but it shares with q - is this a problem???  shouldn't be???
+sa((
+    (p:: ref(pair(maybe(bool),maybe(bool))));
+    j = just(true);
+    *p = pair(nothing,j);
+    q = p;
+    *p := pair(j,nothing)
+)).
+
+% need to keep aliasing between p and q
+sa((
+    (q :: ref(maybe(bool)));
+    p = q;
+    j = just(true);
+    *p := j
+)).
+
+% don't need to keep aliasing between p and q
+sa((
+    (q :: ref(maybe(bool)));
+    *p = *q;
+    j = just(true);
+    *p := j
+)).
+
+*/

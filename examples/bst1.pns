@@ -1,0 +1,164 @@
+% bst stuff: conversion from list of ints to bst of ints destructively,
+% printing tree,...
+% Simple version with no polymorphism or higher order (with polymorphism
+% you typically get more sharing because the values in the tree are not
+% atomic) and with higher order you might potentially get less precise
+% sharing analysis.
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+type rbst = ref(bst).
+
+% import from addlist.
+
+bst1 :: void -> bst
+    sharing bst1(v)=t
+    pre nosharing
+    post nosharing.
+bst1(v) = {
+    t = node(mt, 42, mt);
+    return(t)
+}.
+
+abst1 :: void -> bst
+    sharing abst1(v)=t
+    pre nosharing
+    post t=abstract.
+abst1(v) = {
+    t = node(mt, 42, mt);
+    return(t)
+}.
+
+ints1 :: void -> ints
+    sharing ints1(v)= ns
+    pre nosharing
+    post ns = abstract.
+ints1(v) = 
+    cons(4, cons(2, cons(1, cons(3, nil)))).
+
+% convert list to bst - note this appears "pure" to callers
+list_bst :: ints -> bst.
+%     sharing list_bst(xs) = xt
+%     pre xs = abstract
+%     post xt = abstract.
+% XX the following is less precise than needed (if list_bst is called
+% with a concrete list we don't want to stop it being updated later) but
+% its what is currently generated if no sharing is specified.
+%     post xt = abstract; xs = abstract.
+list_bst(xs) = {
+    *tp = mt;
+    list_bst_du(xs, !tp);
+    return(*tp)
+}.
+
+% destructively add list of ints to tree we have ptr to
+list_bst_du :: ints -> rbst -> void
+    sharing list_bst_du(xs, !tp) = v
+    pre xs = abstract
+    % pre (xs = abstract; tp = abstract) % XX get errors with !tp
+    post nosharing.
+list_bst_du(xs, tp) = {
+    cases xs of {
+    case cons(x, xs1):
+        bst_insert_du(x, !tp);
+        list_bst_du(xs1, !tp);
+        return
+    case nil:
+        return
+    }
+}.
+
+% destructively add int to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice)
+bst_insert_du :: int -> rbst -> void
+    sharing bst_insert_du(x, !tp) = v
+    pre nosharing
+    post nosharing.
+bst_insert_du(x, tp) = {
+    cases *tp of {
+    case mt:
+        *!tp := node(mt, x, mt)
+    case node(*lp, n, *rp):
+        if leq(x, n) then
+            bst_insert_du(x, !lp) !tp
+        else
+            bst_insert_du(x, !rp) !tp
+    }
+}.
+
+
+test1 :: void -> void
+    sharing test1(v)=v1
+    pre nosharing
+    post nosharing.
+test1(v) = {
+    *tp = mt;
+    bst_insert_du(42, !tp);
+    % example of passing a concrete DS to a pure fn preventing
+    % further update of the DS because it might share with abstract DS
+    t1 = bst_id(*tp);
+    bst_insert_du(43, !tp);      % Error: missing !t1
+    bst_insert_du(44, !tp) !t1;  % Error: t1 abstract
+    t2 = t1; % dummy use of t1
+    bst_insert_du(44, !tp);      % OK: t1 now dead
+    tp1 = tp;
+    t3 = list_bst(ints1(void));
+    return(v)
+}.
+
+test2 :: void -> void
+    sharing test2(v)=v1
+    pre nosharing
+    post nosharing.
+test2(v) = {
+    *tp = mt;
+    bst_insert_du(42, !tp);
+    % example of passing a concrete DS to a pure fn not preventing
+    % further update of the DS because pure fn doesn't create sharing
+    s1 = bst_size(*tp);
+    % should avoid sharing tp with abstract!
+    bst_insert_du(43, !tp);
+    s2 = bst_size(*tp);
+    %
+    *tp1 = bst1(void);          % concrete tree
+    bst_insert_du(42, !tp1);    % -> can DU
+    *atp1 = abst1(void);        % abstract tree
+    bst_insert_du(43, !atp1);   % can't DU abs var if live; precond viol
+    dummy0 = tp1;
+    dummy1 = atp1;
+    %
+    ns = cons(2, nil);
+    cases ns of {
+    case cons(*np, *nsp):
+        t2 = list_bst(ns);      % precond of list_bst shares ns with abstract
+        *!nsp := cons(3, nil) !ns % but not postcond, so this is OK
+    };
+    ns1 = ns; % use ns
+    return(v)
+}.
+
+bst_id :: bst -> bst
+    sharing bst_id(t)=t1
+    pre t = abstract
+%     post (t1 = abstract; t = t1). % want to avoid t = abstract
+     post (t1 = abstract; t = abstract). % imprecise (curr. default)
+%     post t1 = abstract. % not sufficient
+% for abstract, if the result can share with an input (components have
+% the same type) the this should be put explicitly in post, but if
+% possible, avoid explicit sharing between args and abstract in post
+% - should put this in code for generating implicit pre/post
+bst_id(t) = {
+    return(t)
+}.
+
+bst_size :: bst -> int.
+%     sharing bst_size(xt)=s
+%     pre xt = abstract
+    % post nosharing.
+%     post s = abstract. % same as nosharing since its atomic
+% want to avoid post xt = abstract
+bst_size(xs) = {
+    % XXX STUB
+    return(42)
+}.
+

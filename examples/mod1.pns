@@ -1,0 +1,226 @@
+% simple module stuff
+
+export_imp bst1, abst1, ints.
+export_name bst, list_bst.
+% import testimp from 'pns/mod2'.
+% import from 'pns/mod2'.
+import from 'mod2'.
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+type rbst = ref(bst).
+
+testC :: bst -> bst.
+testC(b) = as_C "{return b;}".
+
+bst1 :: void -> bst
+    sharing bst1(v)=t
+    pre nosharing
+    post nosharing.
+bst1(v) = {
+    t = node(mt, 42, mt);
+    return(t)
+}.
+
+abst1 :: void -> bst
+    sharing abst1(v)=t
+    pre nosharing
+    post t=abstract.
+abst1(v) = {
+    t = node(mt, 42, mt);
+    return(t)
+}.
+
+ints1 :: void -> ints
+    sharing ints1(v)= ns
+    pre nosharing
+    post ns = abstract.
+ints1(v) = {
+    cons(4, cons(2, cons(1, cons(3, nil))))
+}.
+
+% convert list to bst - note this appears "pure" to callers
+list_bst :: ints -> bst.
+%     sharing list_bst(xs) = xt
+%     pre xs = abstract
+%     post xt = abstract.
+% XX the following is less precise than needed (if list_bst is called
+% with a concrete list we don't want to stop it being updated later) but
+% its what is currently generated if no sharing is specified.
+%     post xt = abstract; xs = abstract.
+list_bst(xs) = {
+    *tp = mt;
+    list_bst_du(xs, !tp);
+    return(*tp)
+}.
+
+% destructively add list of ints to tree we have ptr to
+list_bst_du :: ints -> rbst -> void
+    sharing list_bst_du(xs, !tp) = v
+    pre nosharing % OK since there is only one arg - could be abstract
+    % pre xs = abstract
+    % pre (xs = abstract; tp = abstract) % XX get errors with !tp
+    post nosharing.
+list_bst_du(xs, tp) = {
+    cases xs of {
+    case cons(x, xs1):
+        bst_insert_du(x, !tp);
+        list_bst_du(xs1, !tp);
+        return
+    case nil:
+        return
+    }
+}.
+
+% destructively add int to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice)
+bst_insert_du :: int -> rbst -> void
+    sharing bst_insert_du(x, !tp) = v
+    pre nosharing
+    post nosharing.
+bst_insert_du(x, tp) = {
+    cases *tp of {
+    case mt:
+        *!tp := node(mt, x, mt)
+    case node(*lp, n, *rp):
+        cases leq(x, n) of {
+        case true:
+            bst_insert_du(x, !lp) !tp
+        case false:
+            bst_insert_du(x, !rp) !tp
+        }
+    }
+}.
+
+
+test1 :: void -> void
+    sharing test1(v)=v1
+    pre nosharing
+    post nosharing.
+test1(v) = {
+    *tp = mt;
+    bst_insert_du(42, !tp);
+    % example of passing a concrete DS to a pure fn preventing
+    % further update of the DS because it might share with abstract DS
+    t1 = bst_id(*tp);
+    bst_insert_du(43, !tp);      % Error: missing !t1
+    bst_insert_du(44, !tp) !t1;  % Error: t1 abstract
+    t2 = t1; % dummy use of t1
+    bst_insert_du(44, !tp);      % OK: t1 now dead
+    tp1 = tp;
+    t3 = list_bst(ints1(void));
+    return(v)
+}.
+
+bst_id :: bst -> bst
+    sharing bst_id(t)=t1
+    pre t = abstract
+%     post (t1 = abstract; t = t1). % want to avoid t = abstract
+     post (t1 = abstract; t = abstract). % imprecise (curr. default)
+%     post t1 = abstract. % not sufficient
+% for abstract, if the result can share with an input (components have
+% the same type) the this should be put explicitly in post, but if
+% possible, avoid explicit sharing between args and abstract in post
+% - should put this in code for generating implicit pre/post
+bst_id(t) = {
+    return(t)
+}.
+
+bst_size :: bst -> int.
+%     sharing bst_size(xt)=s
+%     pre xt = abstract
+    % post nosharing.
+%     post s = abstract. % same as nosharing since its atomic
+% want to avoid post xt = abstract
+bst_size(xs) = {
+    % XXX STUB
+    return(42)
+}.
+
+
+% print all elements of tree (inorder, no indentation etc to show tree
+% structure).  Should support declaration of implicit io parameter
+% implicit !io
+print_tree :: bst -> void
+    sharing print_tree(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_tree(t) = {
+    cases t of {
+    case mt:
+        return
+    case node(l, n, r):
+        print_tree(l);
+        print_int(n);
+        print_tree(r);
+        return
+    }
+}.
+
+% as above for list
+% implicit !io
+print_ints :: list(int) -> void
+    sharing print_ints(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_ints(t) = {
+    cases t of {
+    case nil:
+        return
+    case cons(n, r):
+        print_int(n);
+        print_ints(r);
+        return
+    }
+}.
+
+% % <= for ints: defined elsewhere in C
+% leq :: int -> int -> bool
+%     sharing leq(p0,p1)=r
+%     pre nosharing
+%     post nosharing.
+% leq(p0, p1): return(true).
+% 
+% % Defined elsewhere in C
+% print_int :: int -> void
+%     sharing print_int(i)=voidvar
+%     pre nosharing
+%     post nosharing.
+% print_int(x) : void.
+
+% extra testing stuff for HO
+map :: (int -> int) -> ints -> ints.
+map(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map(f, mbs1))
+    }
+}.
+
+% XXXXX map2 :: (int -> int -> int) -> ints -> ints. % -> failure
+map2 :: (int -> int -> int) -> ints -> ints -> ints.
+map2(f, mbs, mcs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+    	cases mcs of {
+	case nil:
+	    nil
+    	case cons(mc, mcs1):
+        	cons(f(mb,mc), map2(f, mbs1, mcs1))
+	}
+    }
+}.
+
+inc :: int -> int.
+inc(n) = n+10.
+
+incs :: ints -> ints.
+incs(is) = map(+(20), is).
+
+add_lists :: ints -> ints -> ints.
+add_lists(xs, ys) = map2(+, xs, ys).
+

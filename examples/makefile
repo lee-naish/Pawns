@@ -1,0 +1,105 @@
+# makefile for Pawns stuff - try out make pattern rules etc
+
+# Size of tree for testing bst.pns, pbst.pns (if Max=0 we use a default
+# small list and test some higher order stuff). If Max>1400 or so its
+# too big without GC for some default limits on process size etc.
+Max=12000
+Max=30000
+Max=0
+
+# gcc -O3 does a great job
+CC=gcc
+
+# We need to link with the (Boehm++) garbage collector currently, which
+# should really be installed somewhere standard, but just in case its
+# not. gc details at http://www.hboehm.info/gc/
+GCLIB=~/lib/gc/lib
+GC=gc
+LDLIBS=-Wl,-rpath -Wl,$(GCLIBDIR) -l$(GC)
+# LDFLAGS=-Wl,-rpath -Wl,$(GCLIBDIR) -l$(GC)
+
+# adt stuff causes *lots* of warnings due to implicit coercion between
+# things with size sizeof(void*) currently, so we turn off all warnings
+# with -w (for now XXX useful to have them when mixing C and Pawns)
+CFLAGS=-O3 -w
+CFLAGS=-O3 -w -DREDIRECT_MALLOC=GC_malloc -DIGNORE_FREE
+CFLAGS=-O3 -w
+
+
+# XXX install these somewhere, eg ~/bin at least
+PNSC=../compiler/pnsc
+PNSC=~/bin/pnsc
+ADTPP=../../../adt4c/src/adtpp
+ADTPP=~/bin/adtpp
+
+# The Pawns "compiler" converts foo.pns to foo.c and foo.adt and the
+# latter is converted to foo.h by adtpp.  foo.c requires foo.h and
+# foo.adt should generally not be touched by the user so we can package
+# up these two steps together as follows.  Make doesn't clean up foo.h
+# or foo.adt, but we might want to use the former in our C code and the
+# latter can easily be cleaned up and is small anyway.
+# adtpp is currently rather noisey so we put the output in a file
+# (XXX we include pawns.h as a dependency here for development purposes)
+%.c %.h : %.pns pawns.h
+	$(PNSC) $<
+	$(ADTPP) $*.adt > adtpp.errs
+
+# An alternative is to separate these and change the generic %.o : %.c
+# rule so it requires a %.h as well, as follows:
+# %.o : %.c %.h
+# 	$(CC) $(CPPFLAGS) -c $< -o $@
+# 
+# %.c %.adt : %.pns
+# 	$(PAWNSC) $<
+
+# the adtpp tool takes a foo.adt file and generates a foo.h file
+# (not needed for Pawns if we use the combined rule but it does no harm
+# and can be useful for C code)
+%.h : %.adt
+	$(ADTPP) $<
+
+all: bst pbst
+
+# bst.pns imports from addlist.pns so we put the following dependency
+bst.c: bst.pns addlist.pns
+
+# XXX apply.o should be pawns_rt library
+bst: bst.o bst_main.o apply.o addlist.o
+
+# XXX apply.o should be pawns_rt library
+pbst: pbst.o bst_main.o apply.o addlist.o
+
+# XXX apply.o should be pawns_rt library
+p1bst: p1bst.o bst_main.o apply.o addlist.o
+
+bst_main.o: bst.h bst_main.c addlist.h
+	gcc -c $(CFLAGS) -DMax=$(Max) bst_main.c
+
+# testio.pns imports from io.pns so we put the following dependency
+testio.c: testio.pns io.pns
+
+isort.c: isort.pns array.pns
+
+isort: isort_main.c isort.c
+
+.bogus: test
+test: bst pbst p1bst isort testio
+	echo TESTING bst:::::::::::::::::::::::::::::::::::: > /dev/null
+	./bst
+	echo TESTING pbst:::::::::::::::::::::::::::::::::::: > /dev/null
+	./pbst
+	echo TESTING p1bst:::::::::::::::::::::::::::::::::::: > /dev/null
+	./p1bst
+	echo TESTING isort:::::::::::::::::::::::::::::::::::: > /dev/null
+	./isort
+	echo TESTING testio:::::::::::::::::::::::::::::::::::: > /dev/null
+	./testio < testio.pns
+	echo DONE :::::::::::::::::::::::::::::::::::: > /dev/null
+
+.bogus: clean
+clean:
+	rm -f *.adt *.o *.h.gch bst.h bst.c p1bst.h pbst.h p1bst.c pbst.c testio.c\
+		imp.c imp.h addlist.c addlist.h \
+		 testio.h isort.h isort.c array.c array.h adtpp.errs
+	rm -if testio bst p1bst pbst isort
+	rm -if tmp* a.out

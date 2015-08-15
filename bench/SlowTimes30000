@@ -1,0 +1,78 @@
+echo '------------ Pawns with destructive update'
+------------ Pawns with destructive update
+time ./bst
+30000
+Command exited with non-zero status 6
+4.83user 0.01system 0:04.86elapsed 99%CPU (0avgtext+0avgdata 3492maxresident)k
+0inputs+0outputs (0major+936minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ C with malloc'
+------------ C with malloc
+time ./cbst
+30000
+Command exited with non-zero status 6
+9.90user 0.00system 0:09.93elapsed 99%CPU (0avgtext+0avgdata 3504maxresident)k
+0inputs+0outputs (0major+937minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ C with GC_malloc'
+------------ C with GC_malloc
+time ./gcbst
+30000
+Command exited with non-zero status 6
+9.86user 0.01system 0:09.89elapsed 99%CPU (0avgtext+0avgdata 3496maxresident)k
+0inputs+0outputs (0major+935minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ MLton with Ref'
+------------ MLton with Ref
+time ./mlrbst
+30000
+14.35user 0.05system 0:14.42elapsed 99%CPU (0avgtext+0avgdata 4892maxresident)k
+0inputs+0outputs (0major+989minor)pagefaults 0swaps
+echo '------------ Haskell with STRef'
+------------ Haskell with STRef
+time ./hsrbst
+30000
+21.71user 0.01system 0:21.79elapsed 99%CPU (0avgtext+0avgdata 7532maxresident)k
+0inputs+0outputs (0major+1971minor)pagefaults 0swaps
+echo '------------ MLton without destructive update'
+------------ MLton without destructive update
+time ./mlpbst
+30000
+31.52user 0.95system 0:32.64elapsed 99%CPU (0avgtext+0avgdata 42788maxresident)k
+0inputs+8outputs (0major+25205minor)pagefaults 0swaps
+echo '------------ Pawns without destructive update'
+------------ Pawns without destructive update
+time ./pbst
+30000
+Command exited with non-zero status 6
+69.42user 0.05system 1:09.70elapsed 99%CPU (0avgtext+0avgdata 39564maxresident)k
+0inputs+0outputs (0major+5864minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ C iterative without destructive update'
+------------ C iterative without destructive update
+time ./cpibst
+30000
+Command exited with non-zero status 6
+102.00user 0.02system 1:42.25elapsed 99%CPU (0avgtext+0avgdata 3532maxresident)k
+0inputs+0outputs (0major+944minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ C without destructive update'
+------------ C without destructive update
+time ./cpbst
+30000
+Command exited with non-zero status 6
+131.77user 0.02system 2:12.09elapsed 99%CPU (0avgtext+0avgdata 4564maxresident)k
+0inputs+0outputs (0major+1202minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo '------------ Haskell with seq but without destructive update'
+------------ Haskell with seq but without destructive update
+time ./hssbst
+30000
+102.45user 0.22system 1:43.03elapsed 99%CPU (0avgtext+0avgdata 6472maxresident)k
+0inputs+0outputs (0major+1717minor)pagefaults 0swaps
+echo '------------ Haskell without destructive update'
+------------ Haskell without destructive update
+time ./hspbst
+30000
+235.07user 0.40system 3:56.23elapsed 99%CPU (0avgtext+0avgdata 6472maxresident)k
+0inputs+0outputs (0major+1716minor)pagefaults 0swaps

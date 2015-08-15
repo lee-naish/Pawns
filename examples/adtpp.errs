@@ -1,0 +1,14 @@
+filename is: bst and the file is bst.adt
+New version started
+Initialize.h files successfully
+
+Declaration
+Data name: bst
+ctr is: mt
+ctr is: node
+arg: bst
+arg: intptr_t
+arg: bst
+# of Constant: 1, # of Non-Constant: 1
+
+All done

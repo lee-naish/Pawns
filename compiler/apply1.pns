@@ -1,0 +1,29 @@
+% Pawns code for apply etc
+% Now coded directly in C (this is not well-typed)
+
+apply:: '_closure' -> ref(void) -> ref(void).
+apply(cl, a1):
+    cases cl of (
+    case '_cl0'(f, aty):
+        cases aty==1 of (
+        case true: f(a1)
+        case false: '_cl1'(f, aty, a1)
+        )
+    case '_cl1'(f, aty, ca1):
+        cases aty==2 of (
+        case true: f(ca1, a1)
+        case false: '_cl2'(f, aty, ca1, a1)
+        )
+    case '_cl2'(f, aty, ca1, ca2):
+        cases aty==2 of (
+        case true: f(ca1, ca2, a1)
+        case false: '_cl3'(f, aty, ca1, ca2, a1)
+        )
+    case '_cl3'(f, aty, ca1, ca2, ca3):
+        cases aty==2 of (
+        case true: f(ca1, ca2, ca3, a)
+        case false: '_cl4'(f, aty, ca1, ca2, ca3, a1)
+        )
+    case '_cl4'(f, aty, ca1, ca2, ca3, ca4):
+        f(ca1, ca2, ca3, ca4, a1)
+    ).

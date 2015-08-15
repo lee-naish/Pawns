@@ -1,0 +1,134 @@
+% test cases for implicit arguments/global vars
+
+main :: void -> void
+    implicit rw io.
+main(c) = { !putchar(!getchar(void))
+}.
+
+% some global mutable variables/implicit arguments
+!isdef :: ref(int).
+!undef :: ref(int).
+!itdef :: bool. % XXX not a ref, ill-typed use
+nobang :: ref(int). % XXX not mutable
+
+test1 :: ref(int) -> ref(int)
+    implicit
+        ro io,  % XXX should be rw due to putchar+getchar
+        wo undef, % XXX
+        wo itdef, % XXX
+        rw nobang, % XXX
+        wo isdef
+    sharing test1(ip0) = ip
+    pre nosharing
+    post nosharing. % XXX ip = isdef
+test1(ip) = {
+    *itdef = 42; % XXX ill-typed
+    *isdef = 42;
+    jp = isdef;
+    putchar(!getchar(void)); % XXX ! missing on putchar
+    jp
+}.
+
+test2 :: ref(int) -> ref(int)
+    % implicit rw io % XXX missing
+    sharing test2(!ip0) = ip
+    pre nosharing
+    post ip = ip0.
+test2(ip) = {
+    % !putchar(10);
+    ip1 = !test1(ip); % defines isdef; XX uses io
+    *j = 42;
+    i = isdef;
+    !test3(!j); % !i % XX isdef rw in test3 and shared with i
+    !test4(!i); % precond allows sharing with isdef
+    !test3(!i); % XX precond violation
+    % !test3(!isdef);   % sharing missed - should rename args to avoid repeats XXXXXX
+    dummy = i;
+    ip
+}.
+
+test3 :: ref(int) -> void
+    implicit rw isdef
+    sharing test3(!ip) = v
+    pre nosharing
+    post nosharing.
+test3(ip) = {
+    *!ip := 42; void
+}.
+    % XXXXX currently need "; void" or
+    % ERROR: suspect definition:((test3(ip): *!ip:=42))
+
+test4 :: ref(int) -> void
+    implicit rw isdef
+    sharing test4(!ip) = v
+    pre ip=isdef
+    post nosharing.
+test4(ip) = {
+    *!ip := 42; void
+}. % !isdef % XX
+
+% Convert a function which doesn't have an implicit io parameter
+% to an equivalent one which does (but its not used, of course)
+%
+% with_io :: (T1->T2) -> T1->T2 implicit rw io sharing f(a1,a2)=r pre
+% (a1=abstract;a2=abstract) post (r=abstract;a1=abstract;a2=abstract).
+% with_io :: (T1->T2) -> (T1->T2 implicit rw io) implicit rw io.
+%
+with_io :: (T1->T2) -> T1->T2 implicit rw io.
+with_io(fn,arg) = { fn(arg)
+}.
+% 
+% currently implicit args are only added for applications and checking
+% compatability of arrow types enforces identical implicit arguments
+% (FIX), so following gives a type error
+% with_io(fn): fn.
+
+% (Failed) attempt to convert a function which has an implicit io parameter
+% to an equivalent one which doesn't (allowing io functions to be called
+% by pure functions) - can't be done
+% hide_io :: (T1->T2 implicit rw io) -> T1->T2 implicit rw io. % io exposed
+hide_io :: (T1->T2 implicit rw io) -> T1 -> T2. % io hidden XX
+hide_io(fn,arg) = { !fn(arg)
+}.
+% hide_io(fn): fn.
+
+% test (unrelated) scope stuff
+scope :: int -> void
+    sharing scope(i) = v
+    pre nosharing
+    post nosharing.
+scope(i) = {
+    if i <= 0 then
+	j = i
+    else
+        j = 42;
+    if j <= 0 then
+        k = nil            % :: list(T)
+    else
+        k = cons(42, nil); % :: list(int)
+    l = k; % k not defined due to differing types above
+    if j <= 0 then
+        k1 = (nil :: list(int))
+    else
+        k1 = cons(42, nil);
+    l1 = k1 % ok
+}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% stubs
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% asserted by system
+type iotype ---> iocons. % should be opaque
+% !io :: ref(iotype).
+
+putchar :: int -> void
+    implicit rw io.
+putchar(c) = { !putchar(c)
+}.
+
+getchar :: void -> int
+    implicit rw io.
+getchar(c) = { !getchar(c)
+}.
+

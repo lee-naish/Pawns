@@ -1,0 +1,88 @@
+% various stuff for io in Pawns, implemented in C
+% Shows how you can interface Pawns and C reasonably easily (and of
+% course you can break things this way).  They are mostly very simple
+% functions so we export the implementation and gcc will very likely inline
+% them.
+% XXX change to GC_MALLOC etc
+
+export_imp
+    io_needed,
+    read_line,
+    read_word,
+    write_int,
+    write_string,
+    put_char,
+    get_char.
+export_name
+    string.
+
+% dummy type for C NULL-terminated strings - we cast to/from char*
+type string ---> dummy.
+
+% we put a dummy function here with stuff at the end to #include what we
+% need etc (pawns.h includes stdio.h and some other stuff)
+io_needed :: void -> void.
+io_needed(v) = as_C " {return;}
+#include <string.h>
+".
+
+
+write_int :: int -> void
+	implicit rw io.
+write_int(i) = as_C "{
+    printf(\"%ld\\n\", (long)i);
+}".
+
+read_word :: void -> maybe(string)
+	implicit rw io.
+read_word(i) = as_C "{	\n\c
+    char tmp[200], *str; // XXX	\n\c
+    int len;	\n\c
+    len = scanf(\"%199s\", (char*)tmp); // XXX	\n\c
+    if (len == EOF || len == 0) {	\n\c
+	printf(\"EOF\\n\");	\n\c
+        return nothing();	\n\c
+    } else {	\n\c
+        len = strlen(tmp);	\n\c
+        str = (char*)malloc(len+1);	\n\c
+        strcpy(str, tmp);	\n\c
+        return just((string)str);	\n\c
+    }	\n\c
+}".
+
+read_line :: void -> maybe(string)
+	implicit rw io.
+read_line(i) = as_C "{	\n\c
+#define READLN_BUF_SZ 500
+    char tmp[READLN_BUF_SZ], *str; // XXX	\n\c
+    int len, ch;	\n\c
+    if (feof(stdin) != 0) {	\n\c
+        return nothing();	\n\c
+    } else {	\n\c
+        tmp[0] = 0; // for stdin we might really be at eof?	\n\c
+        fgets(tmp, READLN_BUF_SZ-1, stdin);	\n\c
+        len = strlen(tmp);	\n\c
+        str = (char*)malloc(len+1);	\n\c
+        strcpy(str, tmp);	\n\c
+        return just((string)str);	\n\c
+    }	\n\c
+}".
+
+write_string :: string -> void
+	implicit rw io.
+write_string(i) = as_C "{
+    fputs((char*)i, stdout);
+}".
+
+put_char :: int -> void
+	implicit rw io.
+put_char(i) = as_C "{
+    putchar(i);
+}".
+
+get_char :: void -> int
+	implicit rw io.
+get_char(v) = as_C "{
+    return (intptr_t) getchar();
+}".
+

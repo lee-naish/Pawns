@@ -1,0 +1,11 @@
+alias ppb='~/c/src/proglang/adt4c/src/adtpp bst.adt'
+alias pppb='~/c/src/proglang/adt4c/src/adtpp pbst.adt'
+alias pph='~/c/src/proglang/adt4c/src/adtpp ho.adt'
+alias ppc='~/c/src/proglang/adt4c/src/adtpp cord.adt'
+alias cleann='rm\
+	 bst.adt bst.c bst.h \
+	 pbst.adt pbst.c pbst.h \
+	 ho.adt ho.c ho.h \
+	 cord.adt cord.c cord.h \
+	'
+alias gcb='gcc -O3   bst_main.c apply.c ; ./a.out'

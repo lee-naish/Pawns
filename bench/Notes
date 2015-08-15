@@ -1,0 +1,17 @@
+Various versions of binary search tree insertion.
+
+Possibly should try C version which mirrors the "pure" versions, ie it
+does a malloc for each node as it traverses down the branch.
+
+Why is MLton pure version so much faster than pure Pawns version?  Is it
+that the Pawns code is so nasty gcc can't do a good job, or is GC_malloc
+much slower than the equivalent in MLton?
+
+Could try OCAML version with mutable fields in records to avoid extra
+refs, but program structure has to change (somewhat painful, like
+inelegant C versions).
+
+Also a Disciple version??
+
+Its puzzling that the C versions are so much slower than the Pawns
+version.  Could potentially do low level profiling??

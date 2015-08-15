@@ -1,0 +1,4 @@
+data bst {
+    mt();
+    node(bst, intptr_t, bst);
+}

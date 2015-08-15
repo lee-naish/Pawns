@@ -1,0 +1,87 @@
+% insertion sort for arrays of ints
+
+import from array.
+
+% test case
+test_isort :: void -> void
+    implicit rw io
+    sharing test_isort(v)=voidvar
+    pre nosharing
+    post nosharing.
+test_isort(v) = {
+    s = 6;
+    a = array_new(s, 42);
+    p1 = array_nthp(a, 1);
+    *!p1 := 5 !a;
+    p2 = array_nthp(a, 2);
+    *!p2 := 2 !a;
+    p3 = array_nthp(a, 5);
+    *!p3 := 7 !a;
+    !print_array(a);
+    isort(!a);
+    !print_array(a);
+    return
+}.
+
+% sorts array a
+isort :: array(int) -> void
+    sharing isort(!a)=voidvar
+    pre nosharing
+    post nosharing.
+isort(a) = isort_s(!a, 1, array_size(a)).
+
+% sorts array a[0..s-1], assuming a[0..i] already sorted
+isort_s :: array(int) -> int -> int -> void
+    sharing isort_s(!a,i,s)=voidvar
+    pre nosharing
+    post nosharing.
+isort_s(a, i, s) = {
+    if s <= i then
+        return
+    else {
+        aip = array_nthp(a, i);
+        ai = *aip;
+	% XXX following causes sharing anal to barf a bit
+        % !print_int(500); !print_int(i), !print_int(ai);
+        ins(ai, aip, !a, i);
+        % print_array(a);
+        return(isort_s(!a, i+1, s))
+    }
+}.
+
+% insert *ajp into a[0..i] by moving elements to the left by 1
+% as needed
+% very clumsy due to lack of if-then else and && (should do later)
+ins :: int -> ref(int) -> array(int) -> int -> void
+    sharing ins(aj,!ajp,!a,i)=voidvar
+    pre a=array_(*ajp) % XXX support better abstraction somehow?
+    post nosharing.
+ins(aj, ajp, a, i) = {
+    % print_array(a);
+    aip = array_nthp(a, i);
+    if i <= 0 then {
+        % print_int(100); print_int(i); print_int(aj);
+        *!aip := aj !a!ajp % ajp ok?
+    } else {
+        i1 = i-1;
+        ai1p = array_nthp(a, i1);
+        ai1 = *ai1p;
+        if ai1 <= aj then {
+            % print_int(1001); print_int(i); print_int(aj);
+            *!aip := aj !a!ajp % ajp ok?
+        } else {
+            % print_array(a);
+            % print_int(102); print_int(i); print_int(i1); print_int(*ai1p);
+            *!aip := *ai1p !a!ajp;
+            % print_array(a);
+            ins(aj, !ajp, !a, i1) !ajp
+        }
+    }
+}.
+
+print_array :: array(int) -> void
+    implicit rw io
+    sharing print_array(a)=voidvar
+    pre nosharing
+    post nosharing.
+print_array(x) = extern.

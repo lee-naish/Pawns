@@ -1,0 +1,13 @@
+% test import/export
+
+export_imp testimp.
+export_name testimp2, tt.
+
+type tt ---> foo(tt); bar(int).
+
+testimp :: int -> int.
+testimp(v) = v.
+
+testimp2 :: int -> int.
+testimp2(v) = v.
+

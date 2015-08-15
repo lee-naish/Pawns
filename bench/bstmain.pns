@@ -1,0 +1,59 @@
+% bst stuff: top level
+
+export_imp bstmain, bst_size, ones, ones_acc, print_tree.
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+type rbst = ref(bst).
+
+bstmain :: void -> void
+    implicit rw io.
+bstmain(v) = {
+    !print_int(bst_size(list_bst(ones(30000))))
+    % t = list_bst(ones(5));
+    % !print_tree(t);
+    % !print_int(bst_size(t))
+}.
+
+bst_size :: bst -> int.
+bst_size(t) = {
+    cases t of {
+    case mt:
+        0
+    case node(l, n, r):
+	1 + bst_size(l) + bst_size(r)
+    }
+}.
+
+% make list of ones of length n
+ones :: int -> ints.
+ones(n) = ones_acc(n, nil).
+
+ones_acc :: int -> ints -> ints.
+ones_acc(n, xs) = {
+    cases n<=0 of {
+    case true:
+	xs
+    case false:
+        ones_acc(n-1, cons(1, xs))
+    }
+}.
+
+% print all elements of tree (inorder, no indentation etc to show tree
+% structure).
+print_tree :: bst -> void
+    implicit rw io
+    sharing print_tree(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_tree(t) = {
+    cases t of {
+    case mt:
+        return
+    case node(l, n, r):
+        !print_tree(l);
+        !print_int(n);
+        !print_tree(r)
+    }
+}.
+

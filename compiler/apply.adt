@@ -1,0 +1,8 @@
+data _closure  {
+    _cl_delete_this_when_adtpp_fixed();
+    _cl0(_func_ptr, intptr_t);
+    _cl1(_func_ptr, intptr_t, _void_ptr);
+    _cl2(_func_ptr, intptr_t, _void_ptr, _void_ptr);
+    _cl3(_func_ptr, intptr_t, _void_ptr, _void_ptr, _void_ptr);
+    _cl4(_func_ptr, intptr_t, _void_ptr, _void_ptr, _void_ptr, _void_ptr);
+}

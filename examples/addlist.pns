@@ -1,0 +1,41 @@
+% For testing higher order + import/export with bst.pns
+
+type ints = list(int).
+
+export_imp map, map2, inc, incs, add_lists.
+
+% extra testing stuff for HO
+map :: (int -> int) -> ints -> ints.
+map(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map(f, mbs1))
+    }
+}.
+
+% XXXXX map2 :: (int -> int -> int) -> ints -> ints. % -> failure
+map2 :: (int -> int -> int) -> ints -> ints -> ints.
+map2(f, mbs, mcs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cases mcs of {
+        case nil:
+            nil
+        case cons(mc, mcs1):
+                cons(f(mb,mc), map2(f, mbs1, mcs1))
+        }
+    }
+}.
+
+inc :: int -> int.
+inc(n) = n+10.
+
+incs :: ints -> ints.
+incs(is) = map(+(20), is).
+
+add_lists :: ints -> ints -> ints.
+add_lists(xs, ys) = map2(+, xs, ys).

@@ -1,0 +1,92 @@
+% bst stuff: conversion from list of ints to bst of ints
+% pure version (see bst.pns)
+% printing tree,...
+
+import from bstmain.
+
+main :: void -> void
+    implicit rw io.
+main(v) = !bstmain(v).
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+
+% convert list to bst
+list_bst :: ints -> bst.
+list_bst(xs) = list_bst_acc(xs, mt).
+
+% add list of ints to tree and return new tree
+% accumulator version used so order of insertion is L-R
+list_bst_acc :: ints -> bst -> bst.
+list_bst_acc(xs, t0) = {
+    cases xs of {
+    case cons(x, xs1):
+        list_bst_acc(xs1, bst_insert(x, t0))
+    case nil:
+        return(t0)
+    }
+}.
+
+% insert by constructing new path
+bst_insert :: int -> bst -> bst.
+%     sharing bst_insert_du(x, t0) = t
+%     pre nosharing
+%     post t1 = t. % int keys don't share
+bst_insert(x, t0) = {
+    cases t0 of {
+    case mt:
+        node(mt, x, mt)
+    case node(l, n, r):
+        cases leq(x, n) of {
+        case true:
+            node(bst_insert(x, l), n, r)
+        case false:
+            node(l, n, bst_insert(x, r))
+        }
+    }
+}.
+
+% % sum of data in bst
+% bst_sum :: bst -> int.
+% bst_sum(t) = {
+%     cases t of {
+%     case mt:
+%         0
+%     case node(l, n, r):
+% 	n + bst_sum(l) + bst_sum(r)
+%     }
+% }.
+% 
+% % print all elements of tree (inorder, no indentation etc to show tree
+% % structure).
+% print_tree :: bst -> void
+%     implicit rw io
+%     sharing print_tree(t)=voidvar
+%     pre nosharing
+%     post nosharing.
+% print_tree(t) = {
+%     cases t of {
+%     case mt:
+%         return
+%     case node(l, n, r):
+%         !print_tree(l);
+%         !print_int(n);
+%         !print_tree(r)
+%     }
+% }.
+% 
+% % as above for list
+% print_ints :: list(int) -> void
+%     implicit rw io
+%     sharing print_ints(t)=voidvar
+%     pre nosharing
+%     post nosharing.
+% print_ints(t) = {
+%     cases t of {
+%     case nil:
+%         return
+%     case cons(n, r):
+%         !print_int(n);
+%         !print_ints(r)
+%     }
+% }.

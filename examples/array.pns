@@ -1,0 +1,99 @@
+% prototype array support for pawns
+% XXX Need to rethink sharing and exporting of type names?  Here we don't
+% want to export the type imp really but we want to specify sharing between
+% array elements and other args.  Also, we want to be able to talk about
+% sharing of array elements and other data in our code, so we need to
+% export a (fake) data constructor at least.  Maybe with sharing its
+% hard to really support an abstract interface - look at some other
+% examples.  Could possibly support faking data constructors which
+% correspond to paths in the type.
+
+% if we export_imp array_new there is a bit more bloat but its one less
+% .o file to link
+% export_name array_new.
+export_imp
+    array_needed, % dummy fn so we can #include
+    array,        % type for arrays
+    array_new,    % create new array
+    array_nthp,   % get ptr to nth element of array
+    array_nth,    % get nth element of array
+    array_size.   % get size of array
+
+% dummy type so we can export its name
+type array(T) ---> array_(T).
+
+% dummy fn so we can include stuff
+array_needed :: void -> void.
+array_needed(v) = as_C " {return;}	\n\c
+// #include <stdlib.h>	\n\c
+// #include <stdio.h>	\n\c
+// #include <stdint.h>	\n\c
+".
+
+% (generic) arrays are pointers to a block of words (void*), the first
+% is the number of elements, the rest are the elements of the array
+
+% malloc space for size (stored with array) + elements and initialise
+% XXX should have some other variants to initialise, eg fold-like things
+% such as array_new_fold :: int -> (T1 -> (T, T1)) -> T1 -> array(T)
+array_new :: int -> T -> array(T)
+    sharing array_new(s, i) = a
+    pre nosharing
+    post a = array_(i).
+array_new(size, initval) = as_C "\c
+{	\n\c
+    int i;	\n\c
+    void *vp, **vpp; // note ptr to ptr so vpp++ does the right thing	\n\c
+    if (size < 0)	\n\c
+        size = 0;	\n\c
+    vp = ADT_MALLOC((size+1)*sizeof(void*));	\n\c
+    if (!vp) {	\n\c
+        fprintf(stderr, \"Malloc of array failed\\n\");	\n\c
+        exit(1);	\n\c
+    }	\n\c
+    vpp = (void **) vp; // vpp points to first void* in block	\n\c
+    *vpp++ = (void*) size;	\n\c
+    for (i=0; i < size; i++)	\n\c
+        *vpp++ = (void*) initval;	\n\c
+    return (array) vp;	\n\c
+}	\n\c
+".
+
+% returns ptr to nth array element
+% (starting at 0 XXX should we start at 1??)
+array_nthp :: array(T) -> int -> ref(T)
+    sharing array_nthp(a, i) = r
+    pre nosharing
+    post a = array_(*r).
+array_nthp(arr, n) = as_C "\c
+{	\n\c
+#if ARR_BOUND_CHK // array bounds check	\n\c
+    if (n > *(intptr_t*)a || n < 0) {	\n\c
+        fprintf(stderr, \"Array bounds error\\n\"); \n\c
+        exit(1);	\n\c
+    }	\n\c
+#endif // ARR_BOUND_CHK	\n\c
+    return (intptr_t)((void**)arr+n+1); // ptr arith, cast important	\n\c
+}	\n\c
+".
+
+% returns nth array element, for convenience
+array_nth :: array(T) -> int -> T
+    sharing array_nth(a, i) = r
+    pre nosharing
+    post a = array_(r).
+array_nth(arr, n) = *array_nthp(arr, n).
+
+% returns size of array
+array_size :: array(T) -> int
+    sharing array_size(a) = r
+    pre nosharing
+    post nosharing.
+array_size(arr) = as_C"\c
+{	\n\c
+    return (int) *((intptr_t*) arr);	\n\c
+}	\n\c
+".
+
+% void array_free(void *arr);
+% provide this for C programmers?

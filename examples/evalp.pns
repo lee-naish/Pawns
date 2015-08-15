@@ -1,0 +1,73 @@
+% Simple example of outermost (lazy) evaluation - "pure" version
+% *without* sharing of sub-expressions.  See eval.pns for better
+% version.  This version can do lots of unnecessary re-evaluation, some
+% of which could be avoided with a pure version, some of which can't
+% easily.  Best modify this version to initially convert to whnf.
+% We have the following Peano-style rules:
+% zero*x = zero
+% s(n)*x = x+n*x
+% zero+x=x
+% s(n)+x = s(n+x)
+% Evaluation of s(s(s(...)))*(s(s(s(...)))+zero) should ideally take O(N)
+% time but if we use outermost evaluation and don't share the two
+% occurrences of x on the RHS of rule s(n)*x = x+n*x, we end up
+% evaluating x N times, resulting in O(N^2) complexity.
+
+% type for expressions
+% Note we don't have a separate a number type - for the low-level
+% view its better to have a single type.
+type expr --->
+    zero ;
+    s(expr) ;
+    plus(expr, expr) ;
+    times(expr, expr).
+
+% returns test expression
+% (currently need to supply an arg such as zero)
+test :: expr -> expr
+    sharing test(e0)=e
+    pre noshared
+    post noshared.
+test(p) = {
+    return( eval(times(s(s(zero)), times(zero, plus(s(zero), s(zero))))))
+}.
+
+% evaluate/simplify expression so it only contains s/1 and zero.
+eval :: expr -> expr
+    sharing eval(e)=r
+    pre noshared
+    post noshared.
+eval(e) = {
+    cases e of {
+    case zero:
+        return( zero)
+    case s(e1):
+        tmp1 = eval(e1);
+        return( s(tmp1))
+    case plus(e1, e2):
+        ee1 = eval(e1);
+        cases ee1 of {
+        case zero:           % e=plus(zero, e2)
+            tmp1 = eval(e2);
+            return( tmp1) % tail call
+        case s(e11):         % e=plus(s(e11), e2)
+            tmp1 = plus(e11, e2);
+            tmp2 = eval(tmp1);
+            return( s(tmp2))
+        % default: panic
+        }
+    case times(e1, e2):
+        ee1 = eval(e1);
+        cases ee1 of {
+        case zero:           % e=times(zero, e2)
+            % no need to eval e2
+            return( zero)
+        case s(e11):         % e=times(s(e11), e2)
+            tmp1 = times(e11, e2);
+            tmp2 = plus(e2, tmp1);
+            tmp3 = eval(tmp2);
+            return( tmp3)      % tail call
+        % default: panic
+        }
+    }
+}.

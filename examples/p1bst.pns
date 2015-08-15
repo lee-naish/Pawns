@@ -1,0 +1,116 @@
+% bst stuff: conversion from list of ints to bst of ints
+% modification of pure version pbst.pns to simulate smarter compilation
+% which optimises application of a data constructor after a recursive
+% call so tail recursion can be implemented.  We pass a pointer to the
+% tree insert function which is smashed by the call (but we create a new
+% node at each level of insertion)
+% Can't quite make tree abstract due to sharing imprecision + DU
+
+import from addlist.
+
+type bst ---> mt ; node(bst, int, bst).
+type rbst = ref(bst).
+type ints = list(int).
+
+% convert list to bst
+list_bst :: ints -> bst.
+list_bst(xs) = list_bst_acc(xs, mt).
+
+% add list of ints to tree and return new tree
+% accumulator version used so order of insertion is L-R
+list_bst_acc :: ints -> bst -> bst
+    sharing list_bst_acc(xs, t) = v
+    pre xs = abstract
+    post v = t.
+list_bst_acc(xs, t0) = {
+    cases xs of {
+    case cons(x, xs1):
+        list_bst_acc(xs1, bst_insert(x, t0))
+    case nil:
+        return(t0)
+    }
+}.
+
+% insert by constructing new path
+bst_insert :: int -> bst -> bst
+    sharing bst_insert(x, t) = v
+    pre nosharing
+    post v = t.
+bst_insert(x, t0) = {
+    *tp = mt;
+    bst_insert_du(x, t0, !tp);
+    *tp
+}.
+
+% add int to tree and smash ref with new version (old version not
+% modified)
+bst_insert_du :: int -> bst -> rbst -> void
+    sharing bst_insert_du(x, t, !tp) = v
+    pre nosharing
+    post *tp = t.
+bst_insert_du(x, t, tp) = {
+    % want *!tp := node(*lp=mt, n, *rp=mt);
+    *!tp := node(mt, x, mt);
+    cases t of {
+    case mt:
+        void
+    case node(l, n, r):
+        cases *tp of {
+        case node(*lp, *np, *rp):
+            if x <= n then {
+		*!rp := r !tp;
+		% imprecise analysis says *rp and *lp share and
+		% since lp is du below, rp can't be abstract
+                bst_insert_du(x, l, !lp) !tp
+            } else {
+		*!lp := l !tp;
+                bst_insert_du(x, r, !rp) !tp
+            }
+        }
+    }
+}.
+
+% sum of data in bst
+bst_sum :: bst -> int.
+bst_sum(t) = {
+    cases t of {
+    case mt:
+        0
+    case node(l, n, r):
+	n + bst_sum(l) + bst_sum(r)
+    }
+}.
+
+% print all elements of tree (inorder, no indentation etc to show tree
+% structure).
+print_tree :: bst -> void
+    implicit rw io
+    sharing print_tree(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_tree(t) = {
+    cases t of {
+    case mt:
+        return
+    case node(l, n, r):
+        !print_tree(l);
+        !print_int(n);
+        !print_tree(r)
+    }
+}.
+
+% as above for list
+print_ints :: list(int) -> void
+    implicit rw io
+    sharing print_ints(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_ints(t) = {
+    cases t of {
+    case nil:
+        return
+    case cons(n, r):
+        !print_int(n);
+        !print_ints(r)
+    }
+}.

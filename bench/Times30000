@@ -1,0 +1,110 @@
+echo
+
+echo '------------ Pawns with DU'
+------------ Pawns with DU
+time ./bst
+30000
+Command exited with non-zero status 6
+1.10user 0.00system 0:01.11elapsed 99%CPU (0avgtext+0avgdata 3496maxresident)k
+0inputs+0outputs (0major+935minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ C with malloc, DU'
+------------ C with malloc, DU
+time ./cbst
+30000
+Command exited with non-zero status 6
+2.22user 0.01system 0:02.24elapsed 99%CPU (0avgtext+0avgdata 3508maxresident)k
+0inputs+0outputs (0major+938minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ MLton with Ref, DU'
+------------ MLton with Ref, DU
+time ./mlrbst
+30000
+3.28user 0.00system 0:03.29elapsed 99%CPU (0avgtext+0avgdata 4960maxresident)k
+0inputs+0outputs (0major+1501minor)pagefaults 0swaps
+echo
+
+echo '------------ Haskell with STRef, DU'
+------------ Haskell with STRef, DU
+time ./hsrbst
+30000
+4.80user 0.00system 0:04.81elapsed 99%CPU (0avgtext+0avgdata 7528maxresident)k
+0inputs+0outputs (0major+1971minor)pagefaults 0swaps
+echo
+
+echo '------------ MLton no DU'
+------------ MLton no DU
+time ./mlpbst
+30000
+7.44user 0.15system 0:07.60elapsed 99%CPU (0avgtext+0avgdata 42868maxresident)k
+0inputs+0outputs (0major+64775minor)pagefaults 0swaps
+echo
+
+echo '------------ Pawns no DU'
+------------ Pawns no DU
+time ./pbst
+30000
+Command exited with non-zero status 6
+16.25user 0.00system 0:16.29elapsed 99%CPU (0avgtext+0avgdata 39336maxresident)k
+0inputs+0outputs (0major+9897minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ C iterative GC_malloc no free no DU'
+------------ C iterative GC_malloc no free no DU
+time ./cpinfbst
+30000
+Command exited with non-zero status 6
+15.44user 0.00system 0:15.45elapsed 99%CPU (0avgtext+0avgdata 4572maxresident)k
+0inputs+0outputs (0major+1205minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ Haskell with seq but no DU'
+------------ Haskell with seq but no DU
+time ./hssbst
+30000
+21.75user 0.01system 0:21.79elapsed 99%CPU (0avgtext+0avgdata 6476maxresident)k
+0inputs+0outputs (0major+1716minor)pagefaults 0swaps
+echo
+
+echo '------------ C iterative GC_malloc no DU'
+------------ C iterative GC_malloc no DU
+time ./cpigbst
+30000
+Command exited with non-zero status 6
+22.13user 0.00system 0:22.15elapsed 99%CPU (0avgtext+0avgdata 3532maxresident)k
+0inputs+0outputs (0major+944minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ C iterative no DU'
+------------ C iterative no DU
+time ./cpibst
+30000
+Command exited with non-zero status 6
+21.85user 0.00system 0:21.87elapsed 99%CPU (0avgtext+0avgdata 3528maxresident)k
+0inputs+0outputs (0major+944minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ C no DU'
+------------ C no DU
+time ./cpbst
+30000
+Command exited with non-zero status 6
+28.61user 0.00system 0:28.63elapsed 99%CPU (0avgtext+0avgdata 4564maxresident)k
+0inputs+0outputs (0major+1203minor)pagefaults 0swaps
+make: [times] Error 6 (ignored)
+echo
+
+echo '------------ Haskell no DU'
+------------ Haskell no DU
+time ./hspbst
+30000
+51.36user 0.08system 0:51.50elapsed 99%CPU (0avgtext+0avgdata 6472maxresident)k
+0inputs+0outputs (0major+1716minor)pagefaults 0swaps

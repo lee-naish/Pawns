@@ -1,0 +1,17 @@
+% test of basic IO functionality
+% like cat but a line at a time
+
+import from io.
+
+main :: void -> void
+    implicit rw io.
+main(v) = {
+    ms = !read_line(void);
+    cases ms of {
+    case nothing: % eof
+        void % should support exit(0)
+    case just(s):
+        !write_string(s);
+        !main(v)
+    }
+}.

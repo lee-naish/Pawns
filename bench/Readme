@@ -1,0 +1,4 @@
+Benchmarks for Pawns
+
+Currently just a whole bunch of different versions of binary search tree
+insertion, in Pawns, C, Haskell, ML

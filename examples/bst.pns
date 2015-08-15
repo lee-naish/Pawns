@@ -1,0 +1,168 @@
+% bst stuff: conversion from list of ints to bst of ints destructively,
+% printing tree, HO, importing etc
+% Simple version with no polymorphism or higher order (with polymorphism
+% you typically get more sharing because the values in the tree are not
+% atomic) and with higher order you might potentially get less precise
+% sharing analysis.
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+type rbst = ref(bst).
+
+import from addlist.
+
+ints1 :: void -> ints
+    sharing ints1(v)= ns
+    pre nosharing
+    post ns = abstract.
+ints1(v) =
+    cons(4, cons(2, cons(1, cons(3, nil)))).
+
+% convert list to bst - note this appears "pure" to callers
+list_bst :: ints -> bst.
+%     sharing list_bst(xs) = xt
+%     pre xs = abstract
+%     post xt = abstract.
+% XX the following is less precise than needed (if list_bst is called
+% with a concrete list we don't want to stop it being updated later) but
+% its what is currently generated if no sharing is specified.
+%     post xt = abstract; xs = abstract.
+list_bst(xs) = {
+    *tp = mt;
+    list_bst_du(xs, !tp);
+    return(*tp)
+}.
+
+% destructively add list of ints to tree we have ptr to
+list_bst_du :: ints -> rbst -> void
+    sharing list_bst_du(xs, !tp) = v
+    % pre nosharing % gives error with call to list_bst_du above
+    pre xs = abstract % OK
+    % pre xs = abstract; tp = abstract % XX get errors with !tp
+    post nosharing.
+list_bst_du(xs, tp) = {
+    cases xs of {
+    case cons(x, xs1):
+        bst_insert_du(x, !tp);
+        list_bst_du(xs1, !tp)
+    case nil:
+        void
+    }
+}.
+
+% destructively add int to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice)
+bst_insert_du :: int -> rbst -> void
+    sharing bst_insert_du(x, !tp) = v
+    pre nosharing
+    post nosharing.
+bst_insert_du(x, tp) = {
+    cases *tp of {
+    case mt:
+        *!tp := node(mt, x, mt)
+    case node(*lp, n, *rp):
+        % see how much malloc slows things
+        % tmp = node(mt, x, mt);
+        if leq(x, n) then
+            bst_insert_du(x, !lp) !tp
+        else
+            bst_insert_du(x, !rp) !tp
+    }
+}.
+
+% sum of data in bst
+% Rather than use the nicer functional style we use destructive
+% update of a global counter to demonstrate such things.  However, this
+% is encapsulated so bst_sum is pure.
+bst_sum :: bst -> int.
+%     sharing bst_sum(t)=s
+%     pre t = abstract
+    % post nosharing.
+%     post s = abstract. % same as nosharing since its atomic
+% want to avoid post t = abstract
+    % XXX STUB
+bst_sum(t) = {
+    !init_counter(0);
+    !bst_sum1(t);
+    *counter
+}.
+
+% counter for nodes
+!counter :: ref(int).
+
+% XXXX breaks things:
+% init_counter :: void
+% init_counter :: void -> void
+
+% initialize counter to n (counter is not passed in - its
+% write only)
+init_counter :: int -> void
+    implicit wo counter.
+init_counter(n) = {
+    *counter = n
+}.
+
+% assign n to counter (counter is not passed in - its
+% read-write so this is semantically distinct from
+% init_counter, though the emitted code is the same)
+assign_counter :: int -> void
+    implicit rw counter.
+assign_counter(n) = {
+    *!counter := n
+}.
+
+% increment counter by n
+add_to_counter :: int -> void
+    implicit rw counter.
+add_to_counter(n) = {
+    *!counter := *counter + n
+}.
+
+bst_sum1 :: bst -> void
+    implicit rw counter.
+bst_sum1(t) = {
+    cases t of {
+    case mt:
+        return
+    case node(l, n, r):
+        !bst_sum1(l);
+        !add_to_counter(n);
+        % !bst_sum1(r) % obvious way
+	% since bst_sum is pure we can do this instead:
+        !add_to_counter(bst_sum(r))
+    }
+}.
+
+% print all elements of tree (inorder, no indentation etc to show tree
+% structure).
+print_tree :: bst -> void
+    implicit rw io
+    sharing print_tree(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_tree(t) = {
+    cases t of {
+    case mt:
+        return
+    case node(l, n, r):
+        !print_tree(l);
+        !print_int(n);
+        !print_tree(r)
+    }
+}.
+
+% as above for list
+print_ints :: list(int) -> void
+    implicit rw io
+    sharing print_ints(t)=voidvar
+    pre nosharing
+    post nosharing.
+print_ints(t) = {
+    cases t of {
+    case nil:
+        return
+    case cons(n, r):
+        !print_int(n);
+        !print_ints(r)
+    }
+}.

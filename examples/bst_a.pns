@@ -1,0 +1,134 @@
+% bst stuff: conversion from list of ints to bst of ints destructively,
+% printing tree,...
+% Hacked bst.pns to play around with abstract/concrete stuff implemented
+% using sharing with abs_t vars
+
+type bst ---> mt ; node(bst, int, bst).
+type ints = list(int).
+
+bst1 :: void -> bst
+    sharing bst1(v)=t
+    pre nosharing
+    post nosharing.
+bst1(v) = {
+    t = node(mt, 42, mt);
+    return(t)
+}.
+
+ints1 :: bst -> list(int) -> void -> ints
+    sharing ints1(a_bst,a_ints,v) = ns
+    pre nosharing
+    post ns=a_ints.
+ints1(a_bst, a_ints, v) = {
+    is = cons(4, cons(2, cons(1, cons(3, nil))));
+    return(is)
+}.
+
+% convert list to bst - note this appears "pure" to callers
+list_bst :: bst -> list(int) -> list(int) -> bst
+    sharing list_bst(a_bst,a_ints,xs)=xt
+    pre xs=a_ints
+    post t=a_bst.
+list_bst(a_bst, a_ints, xs) = {
+    *tp = mt;
+    list_bst_du(a_bst, a_ints, xs, !tp);
+    return(*tp)
+}.
+
+% destructively add list of ints to tree we have ptr to
+list_bst_du :: bst -> list(int) -> list(int) -> ref(bst) -> void
+    sharing list_bst_du(a_bst,a_ints,xs,tp)=voidvar
+    pre xs=a_ints
+    post nosharing.
+list_bst_du(a_bst, a_ints, xs, tp) = {
+    cases xs of {
+    case cons(x, xs1):
+        bst_insert_du(x, !tp);
+        list_bst_du(a_bst, a_ints, xs1, !tp);
+        return
+    case nil:
+        return
+    }
+}.
+
+% destructively add int to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice)
+bst_insert_du :: int -> ref(bst) -> void
+    sharing bst_insert_du(x,tp)=voidvar
+    pre nosharing
+    post nosharing.
+bst_insert_du(x, tp) = {
+    tmp1 = *tp;
+    cases tmp1 of {
+    case mt:
+        *!tp := node(mt, x, mt);
+        return
+    % shouldn't need ptr for n but currently needed for compilation
+    case node(*lp, *np, *rp):
+        tmp3 = *np;
+        tmp2 = leq(x, tmp3);
+        cases tmp2 of {
+        case true:
+            bst_insert_du(x, !lp) !tp!rp!np; % np,rp dead
+            return
+        case false:
+            bst_insert_du(x, !rp) !tp!lp!np; % np,lp dead
+            return
+        }
+    }
+}.
+
+bst_id :: bst -> bst -> bst
+    sharing bst_id(a_bst,t)=t1
+    pre a_bst=t
+    post (t1=a_bst;t1=t).
+bst_id(a_bst, t) = {
+    return(t)
+}.
+
+test1 :: bst -> void -> void
+    sharing test1(a_bst,v)=v1
+    pre nosharing
+    post nosharing.
+test1(a_bst, v) = {
+    *tp = mt;
+    bst_insert_du(42, !tp);
+    t1 = bst_id(a_bst, *tp);
+    bst_insert_du(43, !tp);      % Error: missing !t1
+    bst_insert_du(44, !tp) !t1;  % Error: t1 shares with a_bst
+    return(v)
+}.
+
+bst_size :: bst -> bst -> int
+    sharing bst_size(a_bst,xt)=s
+    pre a_bst=xt
+    post nosharing.
+% Note: need to distinguish between precond and extra sharing in postcond
+% introduced by execution.  For pure fns we only want to add latter.
+% If we have a_bst = xt as a postcondition also then calling size makes
+% the tree abstract, restricting programming (eg DU of tree)
+bst_size(a_bst, xs) = {
+    % STUB
+    return(42)
+}.
+
+test2 :: bst -> void -> void
+    sharing test2(a_bst,v)=v1
+    pre nosharing
+    post nosharing.
+test2(a_bst, v) = {
+    *tp = mt;
+    bst_insert_du(42, !tp);
+    s1 = bst_size(a_bst, *tp);
+    bst_insert_du(43, !tp);
+    s2 = bst_size(a_bst, *tp);
+    return(v)
+}.
+
+% <= for ints: defined elsewhere in C
+leq :: int -> int -> bool
+    sharing leq(p0,p1)=r
+    pre nosharing
+    post nosharing.
+leq(p0, p1) = { return(true)
+}.

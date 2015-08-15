@@ -1,0 +1,135 @@
+% Simple example of outermost (lazy) evaluation with sharing of
+% sub-expressions.
+% We have the following Peano-style rules:
+% zero*x = zero
+% s(n)*x = x+n*x
+% zero+x=x
+% s(n)+x = s(n+x)
+% Evaluation of {eg) zero*(s(s(s(...)))+zero) should ideally take O(1) time,
+% but innermost evaluation will take O(N) time.
+% Evaluation of s(s(s(...)))*(s(s(s(...)))+zero) should ideally take O(N)
+% time but if we use outermost evaluation and don't share the two
+% occurrences of x on the RHS of rule s(n)*x = x+n*x, we end up
+% evaluating x N times, resulting in O(N^2) complexity.
+% Hence we want to do outermost evaluation but share sub-expressions and
+% only evaluate them once.  The simplest way to think of this is that we
+% destructively update sub-expressions which are shared by outer
+% expressions, and we can have a direct implementation using pointers
+% and destructive update.  One slight subtlety is we need to introduce a
+% level of indirection for shared things. Without destructive update of shared
+% structures we have to generate new identifiers, put them in a table
+% and repeatedly look up and update the table.
+
+% type for expressions
+% Note we don't have a separate a number type - for the low-level
+% view its better to have a single type.
+type expr --->
+    shared(expr) ;  % for shared sub-expressions (indirection)
+    zero ;
+    s(expr) ;
+    plus(expr, expr) ;
+    times(expr, expr).
+
+% returns test expression
+% (currently need dummy arg)
+test :: void -> void
+    sharing test(v)=voidvar
+    pre nosharing
+    post nosharing.
+test(p) = {
+    *p1 = times(s(s(zero)), times(zero, plus(s(zero), s(zero))));
+    eval(!p1);
+    return
+}.
+
+% evaluate/simplify expression so it only contains s/1 and zero
+% (ie "head normal form", HNF).  Most of the work is done by
+% eval_whnf - here we just call eval_whnf and recurse down the
+% chain of s/1 constructors.
+% can't express self-sharing
+% shared/1, plus/2 and times/2 are gone by the end
+eval :: ref(expr) -> void
+    sharing eval(!p)=voidvar
+    pre nosharing
+    post nosharing.
+eval(p) = {
+    eval_whnf(!p);
+    cases *p of {
+    case zero:
+        return
+    case s(*p1):
+        return(eval(!p1)) !p  % tail call
+    % default: panic
+    }
+}.
+
+% evaluate/simplify *top level* of expression so it is s/1 or zero
+% ("weak head normal form", WHNF).
+% We can reuse a top-level constructor because we assume the data
+% structure is not cyclic (so there are no other refs to the top level).
+% However, nested constructors might be shared so we have to be more
+% careful with them.  Even if the initial data structure has no sharing,
+% it may be introduced before recursive calls.  We use an extra data
+% constructor shared/1 to wrap around expressions we create which are shared,
+% which allows us to share the result of the whole expression.  We need this
+% because only *arguments* of data constructors can be destructively updated.
+% We can't, for example, overwrite times(zero,...) with zero, but we can update
+% the argument of shared(times(zero,...)) so it becomes shared(zero).
+eval_whnf :: ref(expr) -> void
+    sharing eval_whnf(!p)=voidvar
+    pre nosharing
+    post nosharing.
+eval_whnf(p) = {
+    cases *p of {
+    case zero:
+        return
+    case s(*p1):
+        return
+    case shared(*p1):
+        eval_whnf(!p1) !p;
+        *!p := *p1 !p1; % p1 not mod here - acyclic!
+        return
+    case plus(*p1, *p2):
+        eval_whnf(!p1) !p!p2;  % note possible sharing of p1&p2
+        cases *p1 of {
+        case zero:       % *p==plus(zero, *p2)
+            % !p2 redundant as long as there are no cycles in DS
+            % If there is a cycle here we loop
+            *!p := *p2 !p2!p1;
+            return(eval_whnf(!p))  % tail call (other vars dead)
+        case s(*p11):         % *p==plus(s(*p11), *p2)
+            % we reuse the plus/2 constructor by changing
+            % its first arg from p1 to p11
+            % !p11!p2 redundant as long as there are no cycles in DS
+            % If there is a cycle here we will loop but can break
+            % things, eg x=s(0)+x (LFP=\infty) => s(x=0+x) (LFP=1)
+            *!p1 := *p11 !p !p11!p2;   % *p==plus(*p11, *p2)
+            % 
+            % Note: we can't reuse the s/1 because it might be shared by p2
+            % so we allocate a new s/1 instead
+            *!p := s(*p) !p1!p2!p11;
+            return
+        % default: panic
+        }
+    case times(*p1, *p2):
+        eval_whnf(!p1) !p!p2;  % note possible sharing of p1&p2
+        cases *p1 of {
+        case zero:        % *p==times(zero, *p2)
+            % no need to eval p2
+            *!p := zero !p1!p2;
+            return
+        case s(*p11):             % *p==times(s(*p11), *p2)==times(*p1,*p2)
+            % we reuse the times/2 constructor by changing
+            % its first arg from p1 to p11, then clobber
+            % p with plus/2, (sharing *p2) then (re)evaluate
+            sp2 = shared(*p2);
+            % !sp2 etc redundant as long as there are no cycles in DS
+            *!p2 := sp2 !p !p1!sp2!p11;    % *p==times(s(*p11), sp2)
+            *!p1 := *p11 !p !p2!sp2!p11;   % *p==times(*p11, sp2)
+            *!p := plus(sp2, *p) !sp2!p1!p11!p2; % *p==plus(sp2,times(*p11,sp2))
+            return(eval_whnf(!p))       % tail call (other vars dead)
+        % default: panic
+        }
+    }
+}.
+

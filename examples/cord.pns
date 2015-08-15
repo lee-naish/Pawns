@@ -1,0 +1,155 @@
+% cords of {lists of) bools
+% should do "pure" (non-DU) versions also
+
+type cb ---> leaf(bs) ; branch(cb, cb).
+type bs = list(bool).
+type rbs = ref(bs).
+
+% test type equality
+% type bsss = l(l(bs)).
+% type l(X) = list(X).
+% type eqtest ---> foo(bsss).
+
+% cordlist takes a cord (containing lists of bools) and returns
+% the concatenation of all the lists.  The lists inside the cord are
+% modified (the nil of each one except the last is updated to point to
+% the next list in the cord).  Note: the lists in the cord must not
+% share!
+% We create a pointer to what is initially an empty list and repeatedly
+% append lists from the cord onto the end of this list, which we keep a
+% pointer to.
+cordlist :: cb -> bs
+    sharing cordlist(!x)=a
+    pre nosharing
+    post x=leaf(a).
+cordlist(x) = {
+    % the initial binding of a is of type ref(list(T)) but since
+    % its assigned things of type ref(bs) we have to explicitly declare
+    % this
+    % XXX hmm, should have a way to get a type params in such places -
+    % currently scope of declaration doesn't include defn
+    *a = (nil :: bs);
+    b = cordlist1(!x, !a);
+    return(*a)
+}.
+
+% Given a cord and a pointer to the end of a list, (destructively)
+% append each list in the cord onto the end of this list and return the
+% new end of the list.
+% (could instead have pointer to pointer to list and clobber it)
+cordlist1 :: cb -> rbs -> rbs
+    sharing cordlist1(!x,!p)=p1
+    pre x=leaf(*p)
+    post (x=leaf(*p); p1=p).
+cordlist1(x, p) = {
+    cases x of {
+%     case empty:
+%         return(p)
+    case leaf(q):
+        % q is not updated below (assuming leaves don't share) since p
+        % will generally share with previous leaves but not this one (yet)
+        *!p := q !x!q;
+        return(lastp(p)) % now we share (return val) with q
+    case branch(x1, x2):
+        % Could use p instead of p2 below but its more confusing.
+        % Or return(cordlist1(!x2, cordlist1(!x1, !p))) !x
+        % (with annotation on nested call?) - shorter but less clear
+        %
+        p2 = cordlist1(!x1, !p) !x!x2; % !x2 see below
+        return(cordlist1(!x2, !p2)) !x!p
+        % 
+        % !x2 is needed above with our sharing analysis.  If the cord is
+        % constructed so there is no sharing between branches then x2 is
+        % not updated in this call and all is fine.  However, this
+        % restriction cannot be guaranteed here and the precision of our
+        % current sharing analysis doesn't allow us to express this
+        % non-sharing.  Thus it must be left up to the programmer to
+        % document this restriction and carefully abide by it: when
+        % constructing a cord which is passed here we must not have cord
+        % such as branch(leaf(xs), leaf(as++xs)) which share xs.
+        % Forcing the programmer to add !x2 above should alert them to
+        % this fact.
+    }
+}.
+
+% given a pointer to a list, returns a pointer to the nil at the end of
+% the list
+% Precise sharing is a bit subtle: arg q shares with result r but we
+% know that r points to nil so the elements of the list r points to *do
+% not* share with the elements the list q points to.  Ideally we should
+% express this (negative) information in the postcondition.
+lastp :: rbs -> rbs
+    sharing lastp(q)=r
+    pre nosharing
+    post r=q.
+lastp(q) = {
+    q1 = *q;
+    cases q1 of {
+    case nil:
+        return(q)
+    case cons(*h, *p):
+        return(lastp(p))
+    }
+}.
+
+% Safe interface to cords.  Its important that the different lists in a
+% cord don't share, otherwise cordlist breaks (it will create a cyclic
+% list then loop).  Here we use an interface with preconditions to ensure
+% that when we add a list to a cord its doesn't share with the lists in
+% the cord already.
+
+% returns empty cord
+% has dummy arg
+cord_mt :: void -> cb
+    sharing cord_mt(v)=a
+    pre nosharing
+    post nosharing.
+cord_mt(x) = {
+%     return(empty).
+    return(leaf(nil))
+}.
+
+% list to cord
+list_cord :: list(bool) -> cb
+    sharing list_cord(l)=c
+    pre nosharing
+    post c=leaf(l).
+list_cord(l) = {
+    return(leaf(l))
+}.
+
+% appends list to cord
+cord_app :: cb -> list(bool) -> cb
+    sharing cord_app(c0,l)=c
+    pre nosharing
+    post c=branch(c0,leaf(l)).
+cord_app(c0, l) = {
+    return(branch(c0, leaf(l)))
+}.
+
+% prepends list to cord
+cord_pre :: list(bool) -> cb -> cb
+    sharing cord_pre(l,c0)=c
+    pre nosharing
+    post c=branch(leaf(l),c0).
+cord_pre(l, c0) = {
+    return(branch(leaf(l), c0))
+}.
+
+% some test code
+testcord :: list(bool) -> bs
+    sharing testcord(l)=l1 % should be !l
+    pre nosharing
+    post nosharing. % should be l1 = l
+testcord(l) = {
+    c0=leaf(l);
+    c1=cord_app(c0,l); % precond violation - c0 and l share
+    c2 = leaf(nil);
+    c3=cord_app(c2,l);
+    c4=cord_app(c3,l); % precond violation - c3 and l share
+    l1 = cordlist(c4); %  !l!c4 
+    c5 = c4;
+    % l1 shares with leaves of c4 and therefore with l
+    return(l1)
+}. % postcond violation
+

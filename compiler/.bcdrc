@@ -1,0 +1,5 @@
+alias vv='vim pawns.pl'
+alias vcc='vim comp.pl'
+alias vho='vim ../examples/ho.pns'
+alias vbs='vim ../examples/bst.pns '
+alias vimp='vim ../examples/imp.pns'

@@ -1,0 +1,70 @@
+% more testing of sharing analysis stuff for paper etc
+
+% example where our sharing analysis is more precise than in Mars etc
+% because 1) constants dont alias, and 2) cases can eliminate sharing
+% for each case (eg, if xs=nil then returning xs causes no sharing)
+map_const_1 :: list(int) -> list(int)
+    sharing map_const_1(xs) = ys
+    pre nosharing
+    post nosharing.
+map_const_1(xs) = {
+    cases xs of {
+        case nil: xs    % can look like result shares with xs
+        case cons(x,xs1): cons(1, map_const_1(xs1))
+    }
+}.
+
+/*
+Other examples from Matt's thesis (p196- in draft)
+
+sa((
+	*x = true;
+	y = x;
+	z = y
+)).
+[s(x._ref,x._ref),s(x._ref,y._ref),s(x._ref,z._ref),s(y._ref,y._ref),s(y._ref,z._ref),s(z._ref,z._ref)]
+note: s(x._ref,z._ref)
+
+sa((
+	*a = true;
+	b = a;
+	cases *a of {
+		case true: c = b
+		case false: d = b
+	}
+)).
+[s(a._ref,a._ref),s(a._ref,b._ref),s(a._ref,c._ref),s(a._ref,d._ref),s(b._ref,b._ref),s(b._ref,c._ref),s(b._ref,d._ref),s(c._ref,c._ref),s(d._ref,d._ref)]
+note: s(a._ref,c._ref) but no c-d alias
+
+sa((
+        *a = true;
+        *d = true;
+        b = a;
+        cases *a of {
+                case true: c = b
+                case false: d = d
+        }
+)).
+[s(a._ref,a._ref),s(a._ref,b._ref),s(a._ref,c._ref),s(b._ref,b._ref),s(b._ref,c._ref),s(c._ref,c._ref),s(d._ref,d._ref)]
+note: s(a._ref,c._ref) but no a-d or b-d alias
+
+*/
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% old
+
+% test3 :: bool -> pair(bool,bool).
+% test3(b) = {
+%     m = just(true);
+%     f = maybenot(m);
+%     f1 = maybenot1(m);
+%     cases m of {
+%     case just(*bp):
+%         *!bp := false;  % !f % XX smashes f but not f1
+%         return(pair(f(b), f1(b)))
+%     }
+% }.
+% 
+% maybenot :: maybe(bool) -> bool -> bool.
+% maybenot(m, b) = extern.
+% maybenot1 :: maybe(bool) -> bool -> bool.
+% maybenot1(m, b) = extern.
