@@ -17,5 +17,7 @@ pawns.h builtin.h: stuff for some builtin types/fns; should be builtin.adt
 
 makefile: makefile
 
+Readme.src: source for ../Readme (we plug in version number)
+
 .bcdrc .exrc: Lee's bash environment stuff etc
 
