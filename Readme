@@ -3,15 +3,19 @@ Pawns: a declarative/imperative language
 Version: 1.150815
 Initial development by Lee Naish
 
-See http://people.eng.unimelb.edu.au/lee/papers/pawns/ for an informal
-introduction to the language (not necessarily up to date, or presented
-particularly well, and the syntax is not what is supported - see note
-below).
+Pawns home page:
+http://people.eng.unimelb.edu.au/lee/src/pawns/
+(or tinyurl.com/pawns-lang)
 
-http://people.eng.unimelb.edu.au/lee/papers/pawnsshare/ has a paper on
-the sharing analysis done in the compiler (the src version here is less up
-to date than the paper and has several known bugs, meaning you can write
-dodgey code and the compiler won't complain as it should).
+This has links to:
+
+An informal introduction to the language (not necessarily up to date,
+or presented particularly well, and the syntax is not what is supported -
+see note below).
+
+Also a paper on the sharing analysis done in the compiler (the src version
+here is less up to date than the paper and has several known bugs, meaning
+you can write dodgey code and the compiler won't complain as it should).
 
 The system is also not packaged well currently.
 
