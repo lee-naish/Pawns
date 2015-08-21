@@ -5,7 +5,7 @@
 % atomic) and with higher order you might potentially get less precise
 % sharing analysis.
 
-import from io.
+import print_int from io.
 
 type bst(T) ---> mt ; node(bst(T), T, bst(T)).
 type ibst = bst(int).

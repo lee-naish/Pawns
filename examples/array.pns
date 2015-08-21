@@ -26,7 +26,7 @@ type array(T) ---> array_(T).
 array_needed :: void -> void.
 array_needed(v) = as_C " {return;}	\n\c
 // #include <stdlib.h>	\n\c
-// #include <stdio.h>	\n\c
+#include <stdio.h>	\n\c
 // #include <stdint.h>	\n\c
 ".
 

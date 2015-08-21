@@ -5,8 +5,10 @@
 % tree insert function which is smashed by the call (but we create a new
 % node at each level of insertion)
 % Can't quite make tree abstract due to sharing imprecision + DU
+% See bst_main.c for top level
 
 import from addlist.
+import print_int from io.
 
 type bst ---> mt ; node(bst, int, bst).
 type rbst = ref(bst).
@@ -27,7 +29,7 @@ list_bst_acc(xs, t0) = {
     case cons(x, xs1):
         list_bst_acc(xs1, bst_insert(x, t0))
     case nil:
-        return(t0)
+        t0
     }
 }.
 

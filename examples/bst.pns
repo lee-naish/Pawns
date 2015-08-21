@@ -1,15 +1,14 @@
 % bst stuff: conversion from list of ints to bst of ints destructively,
-% printing tree, HO, importing etc
-% Simple version with no polymorphism or higher order (with polymorphism
-% you typically get more sharing because the values in the tree are not
-% atomic) and with higher order you might potentially get less precise
-% sharing analysis.
+% printing tree, HO, state var, importing etc
+% no polymorphism
+% See bst_main.c for top level
 
 type bst ---> mt ; node(bst, int, bst).
 type ints = list(int).
 type rbst = ref(bst).
 
 import from addlist.
+import print_int from io.
 
 ints1 :: void -> ints
     sharing ints1(v)= ns
@@ -70,7 +69,7 @@ bst_insert_du(x, tp) = {
     }
 }.
 
-% sum of data in bst
+% sum of data in bst using state var
 % Rather than use the nicer functional style we use destructive
 % update of a global counter to demonstrate such things.  However, this
 % is encapsulated so bst_sum is pure.
@@ -80,7 +79,6 @@ bst_sum :: bst -> int.
     % post nosharing.
 %     post s = abstract. % same as nosharing since its atomic
 % want to avoid post t = abstract
-    % XXX STUB
 bst_sum(t) = {
     !init_counter(0);
     !bst_sum1(t);

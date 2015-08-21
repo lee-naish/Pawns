@@ -1,3 +1,4 @@
+// included in builtin.adt
 data _closure  {
     _cl_delete_this_when_adtpp_fixed();
     _cl0(_func_ptr, intptr_t);

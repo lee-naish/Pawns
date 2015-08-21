@@ -1,10 +1,11 @@
 % bst stuff: top level
 
+% Also needs (XXX should handle recursive imports?)
+% import print_int from io.
 export_imp bstmain, bst_size, ones, ones_acc, print_tree.
 
 type bst ---> mt ; node(bst, int, bst).
 type ints = list(int).
-type rbst = ref(bst).
 
 bstmain :: void -> void
     implicit rw io.
@@ -21,7 +22,7 @@ bst_size(t) = {
     case mt:
         0
     case node(l, n, r):
-	1 + bst_size(l) + bst_size(r)
+	    1 + bst_size(l) + bst_size(r)
     }
 }.
 
@@ -31,12 +32,10 @@ ones(n) = ones_acc(n, nil).
 
 ones_acc :: int -> ints -> ints.
 ones_acc(n, xs) = {
-    cases n<=0 of {
-    case true:
-	xs
-    case false:
+    if n <= 0 then
+	    xs
+    else
         ones_acc(n-1, cons(1, xs))
-    }
 }.
 
 % print all elements of tree (inorder, no indentation etc to show tree

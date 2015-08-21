@@ -11,7 +11,7 @@ main(v) = {
     case nothing: % eof
         void % should support exit(0)
     case just(s):
-        !write_string(s);
+        !print_string(s);
         !main(v)
     }
 }.

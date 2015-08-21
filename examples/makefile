@@ -60,27 +60,35 @@ ADTPP=~/bin/adtpp
 
 all: bst pbst
 
-# bst.pns imports from addlist.pns so we put the following dependency
-bst.c: bst.pns addlist.pns
+pawns.h: ../compiler/pawns.h
+	cp $< .
 
-# XXX apply.o should be pawns_rt library
-bst: bst.o bst_main.o apply.o addlist.o
+builtin.h: ../compiler/builtin.h
+	cp $< .
 
-# XXX apply.o should be pawns_rt library
-pbst: pbst.o bst_main.o apply.o addlist.o
+# bst.pns imports from addlist.pns, io.pns so we put the following dependency
+bst.c: bst.pns addlist.pns io.pns pawns.h builtin.h
 
-# XXX apply.o should be pawns_rt library
-p1bst: p1bst.o bst_main.o apply.o addlist.o
+pbst.c: pbst.pns addlist.pns io.pns pawns.h builtin.h
+
+p1bst.c: p1bst.pns addlist.pns io.pns pawns.h builtin.h
+
+# bst, pbst use main() defined in bst_main.c (not bst_main.pns)
+bst: bst.o bst_main.o io.o addlist.o
+
+pbst: pbst.o bst_main.o io.o addlist.o
+
+p1bst: p1bst.o bst_main.o io.o addlist.o
 
 bst_main.o: bst.h bst_main.c addlist.h
 	gcc -c $(CFLAGS) -DMax=$(Max) bst_main.c
 
 # testio.pns imports from io.pns so we put the following dependency
-testio.c: testio.pns io.pns
+testio.c: testio.pns io.pns pawns.h builtin.h
 
-isort.c: isort.pns array.pns
+isort.c: isort.pns array.pns io.pns pawns.h builtin.h
 
-isort: isort_main.c isort.c
+isort: isort_main.c isort.c io.c
 
 .bogus: test
 test: bst pbst p1bst isort testio
@@ -98,8 +106,13 @@ test: bst pbst p1bst isort testio
 
 .bogus: clean
 clean:
-	rm -f *.adt *.o *.h.gch bst.h bst.c p1bst.h pbst.h p1bst.c pbst.c testio.c\
-		imp.c imp.h addlist.c addlist.h \
-		 testio.h isort.h isort.c array.c array.h adtpp.errs
+	rm -f *.adt *.o *.h.gch bst.h bst.c p1bst.h pbst.h p1bst.c \
+		pbst.c testio.c wam.c wam.h \
+		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst_poly.h \
+		bst1.h wam.h testio.h isort.h isort.c \
+		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort
 	rm -if tmp* a.out
+
+# :set noet ts=8
+

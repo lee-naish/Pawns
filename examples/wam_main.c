@@ -1,3 +1,4 @@
+// OLD see wam.pns - should be merged
 // harness for wam.pns -> wam_out.c
 
 #include <stdlib.h>

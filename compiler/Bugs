@@ -1,0 +1,22 @@
+Incomplete list of bugs/limitations
+
+See XXX in code
+
+Various things to fix in sharing analysis - see paper for
+"final" version of algorithm
+
+Functions with multiple args, some of which are void cause C
+code with void args (error).  eg
+ints1 :: bst -> list(int) -> void -> ints
+    sharing ints1(a_bst,a_ints,v) = ns
+    pre nosharing
+    post ns=a_ints.
+ints1(a_bst, a_ints, v) = {
+    is = cons(4, cons(2, cons(1, cons(3, nil))));
+    return(is)
+}.
+This is a bit of a pain to fix with higher order etc?
+
+Maximum number of args in closure - should use polymorphic
+list of args if there are too many.
+

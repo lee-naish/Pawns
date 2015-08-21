@@ -776,8 +776,8 @@ builtin_fdec((> :: int -> int -> bool)).
 builtin_fdec((<= :: int -> int -> bool)).
 builtin_fdec((leq :: int -> int -> bool)). % XXX
 builtin_fdec((eq :: int -> int -> bool)).
-% XXX delete and rename fn in io.pns ?
-builtin_fdec((print_int :: int -> void implicit rw io)).
+% delete and rename fn in io.pns ?
+% builtin_fdec((print_int :: int -> void implicit rw io)).
 builtin_fdec((>= :: int -> int -> bool)).
 builtin_fdec((+ :: int -> int -> int)).
 builtin_fdec((- :: int -> int -> int)).
@@ -799,7 +799,7 @@ builtin_func_arity(>, 2).
 builtin_func_arity(<=, 2).
 builtin_func_arity(leq, 2). % XXX
 builtin_func_arity(eq, 2). % XXX
-builtin_func_arity(print_int, 1).
+% builtin_func_arity(print_int, 1).
 builtin_func_arity(>=, 2).
 builtin_func_arity(+, 2).
 builtin_func_arity(-, 2).

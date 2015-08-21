@@ -1,8 +1,10 @@
 % bst stuff: conversion from list of ints to bst of ints
 % pure version (see bst.pns)
 % printing tree,...
+% See bst_main.c for top level
 
 import from addlist.
+import print_int from io.
 
 type bst ---> mt ; node(bst, int, bst).
 type ints = list(int).
@@ -19,7 +21,7 @@ list_bst_acc(xs, t0) = {
     case cons(x, xs1):
         list_bst_acc(xs1, bst_insert(x, t0))
     case nil:
-        return(t0)
+        t0
     }
 }.
 
@@ -33,7 +35,7 @@ bst_insert(x, t0) = {
     case mt:
         node(mt, x, mt)
     case node(l, n, r):
-        cases leq(x, n) of {
+        cases x <= n of {
         case true:
             node(bst_insert(x, l), n, r)
         case false:
@@ -86,3 +88,4 @@ print_ints(t) = {
         !print_ints(r)
     }
 }.
+

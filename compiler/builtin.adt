@@ -1,0 +1,34 @@
+// builtin types for Pawns in adtpp syntax
+// (should add more)
+// used to construct builtin.h
+
+// XXX currently closure arg numbers are limited
+data _closure  {
+    _cl0(_func_ptr, intptr_t);
+    _cl1(_func_ptr, intptr_t, _void_ptr);
+    _cl2(_func_ptr, intptr_t, _void_ptr, _void_ptr);
+    _cl3(_func_ptr, intptr_t, _void_ptr, _void_ptr, _void_ptr);
+    _cl4(_func_ptr, intptr_t, _void_ptr, _void_ptr, _void_ptr, _void_ptr);
+}
+
+data pair {
+    t2(_void_ptr, _void_ptr);
+}
+
+data maybe {
+    nothing();
+    just(_void_ptr);
+}
+
+data list {
+    nil();
+    cons(_void_ptr, list);
+}
+
+data PAWNS_bool {
+    PAWNS_false();
+    PAWNS_true();
+}
+
+
+

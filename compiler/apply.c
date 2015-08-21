@@ -1,3 +1,5 @@
+// now copied to pawns.h
+
 typedef void *_void_ptr;
 typedef void (*_func_ptr)(void*);
 #include "apply.h"

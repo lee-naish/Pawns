@@ -1,10 +1,14 @@
 // top level for isort.pns could redo in Pawns
-// demonstrates Pawns calling extern function
+// demonstrates C calling Pawns calling extern C function
 
 #include <stdlib.h>
 #include <stdio.h>
 #include "pawns.h"
 #include "isort.h"
+
+// XXX should be in .h file ...
+extern void print_int(intptr_t i);
+
 
 // see array.pns: arrays are a block of words, the first being the size
 void

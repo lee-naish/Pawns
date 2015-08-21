@@ -1,5 +1,6 @@
 % insertion sort for arrays of ints
 
+% import print_int from io.
 import from array.
 
 % test case

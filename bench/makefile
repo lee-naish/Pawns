@@ -98,11 +98,20 @@ times: all
 	echo '------------ Haskell no DU'
 	-time ./hspbst
 
-# bst.pns imports bstmain.pns
-bst.c : bst.pns bstmain.pns
+# bst.pns imports bstmain.pns, io.pns
+bst.c : bst.pns bstmain.pns io.pns pawns.h builtin.h
 
-# pbst.pns imports bstmain.pns
-pbst.c : pbst.pns bstmain.pns
+# pbst.pns imports bstmain.pns, io.pns
+pbst.c : pbst.pns bstmain.pns io.pns pawns.h builtin.h
+
+io.pns: ../examples/io.pns
+	cp $< .
+
+pawns.h: ../compiler/pawns.h
+	cp $< .
+
+builtin.h: ../compiler/builtin.h
+	cp $< .
 
 gcbst.c : cbst.c
 	tail -n +3 cbst.c > gcbst.c
@@ -142,5 +151,8 @@ mlrbst : mlrbst.sml
 .bogus: clean
 clean:
 	rm -f *.adt *.o *.h.gch bst.h bst.c pbst.h pbst.c adtpp.errs
+	rm -f io.pns pawns.h builtin.h
 	rm -f hsrbst.hi hssbst.hi hspbst.hi tmp* a.out
 	-rm -i bst pbst cpinfbst cpibst cpbst cbst cpigbst gcbst hsrbst hssbst hspbst mlpbst mlrbst
+
+# :set noet ts=8

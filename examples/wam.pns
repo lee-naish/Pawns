@@ -1,4 +1,6 @@
 % Simple WAM-style term representation/manipulation
+% OLD hacked C interface with wam_main.c - should merge properly
+% and get rid of stubs
 
 % type for terms (ignore ints and other special builtin types):
 % Terms are non-vars nv(fs, terms) where fs represents the function
@@ -106,28 +108,40 @@ tderef(p0) = {
 }.
 
 % returns new unbound variable
+% There is a bit a problem due to the cyclic structure.  We create a
+% non-cyclic (bound) var then smash it.  Or support binding pointers to
+% args of data constructors (and allow cycles there).  Or just use C.
 % Currently uses dodgey uninitialised var (will be an error at some
-% stage).  One option is to add a constant to the type to init the var
+% stage).  Another option is to add a constant to the type to init the var
+% (not as bad as creating a function symbol but there is an extra test
+% whenever er switch onn the type).
 newvar :: void -> term
     sharing newvar(v)=t
     pre nosharing
     post nosharing.
-newvar(v) = {
-    % *p = var(*p1=nv(dummyval, nil)); % want to support this syntax
-    % *p = var(*p1= *p1);               % or this + check p1 assigned?
-    % *!p1 := p !p;
-    % *p = var(*p1= *p);                % or this
-    % return(*p)
-    % *p = var(nv(f1, nil));
-    (dummy :: term); % uninitialised XXX
-    % dummy = dummy; % uninitialised var
-    *p = var(dummy);
-    cases *p of {
-    case var(*p1):
-        *!p1 := *p !p!dummy;
-        return(*p)
-    }
-}.
+% newvar(v) = {
+%     % *p = var(*p1=nv(dummyval, nil)); % want to support this syntax
+%     % *p = var(*p1= *p1);               % or this + check p1 assigned?
+%     % *!p1 := p !p;
+%     % *p = var(*p1= *p);                % or this
+%     % return(*p)
+%     % *p = var(nv(f1, nil));
+%     (dummy :: term); % uninitialised XXX
+%     % dummy = dummy; % uninitialised var
+%     *p = var(dummy);
+%     cases *p of {
+%     case var(*p1):
+%         *!p1 := *p !p!dummy;
+%         return(*p)
+%     }
+% }.
+newvar(v) = as_C "{ \n\c
+    term *argp, v = var(v); \n\c
+    if_var_ptr(v, argp) \n\c
+        *argp = v;  \n\c
+    end_if()    \n\c
+}".
+
 
 print_term :: ref(term) -> void
     sharing print_term(!p0)=voidvar % no DU
