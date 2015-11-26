@@ -1082,7 +1082,7 @@ pfdef_fdef(CFH, CFB, FH, FB) :-
 % The way annotations are handled is we have a list of annotations for
 % each basic statement.  For mutability (as above) we use bang(i, V) for
 % indirect and bang(d, V) direct (LHS of := and args of apps).  For
-% ! on aplications (indicating implicit args) we use app_bang(Fn).
+% ! on applications (indicating implicit args) we use app_bang(Fn).
 % Also add src(orig_stat) when we expand things.
 % Later passes add more annotations to keep track of type information,
 % liveness, etc which keep the statements themselves the same.
@@ -1249,10 +1249,7 @@ pstat_eq_stat(PEl, PEr, S) :-
                     ESs, S)
             ; PEr = (!PEr1) ->
                 % more repeated code - getting bad!
-                ( atom(PEr1) ->
-                    % XXX could count this as an error?
-                    S = eq_var(Vl, PEr1)-[bang(d, PEr1)|Anns]
-                ; functor(PEr1, F, Arity), func_arity(F, DecArity) ->
+                ( functor(PEr1, F, Arity), func_arity(F, DecArity) ->
                     % f(h,t) -> v = f(hv,tv)
                     PEr1 =.. [F|PEs],
                     map2(to_var, PEs, Vs, ESs),
@@ -1269,6 +1266,9 @@ pstat_eq_stat(PEl, PEr, S) :-
                         writeln('Hyper-saturated applications not yet supported'),
                         fail
                     )
+                ; atom(PEr1) ->
+                    % XXX could count this as an error?
+                    S = eq_var(Vl, PEr1)-[bang(d, PEr1)|Anns]
                 ;
                     writeln('Error: ! prefixing non-var/application :'(PEr)),
                     S = eq_var(Vl, '_err')-Anns
@@ -1370,8 +1370,13 @@ to_var(PE, V, ES) :-
 %         add_anns(ES1, [bang(PV)], ES)
     ; PE = (!PE1) ->
         ( atom(PE1) ->
-            V = PE1,
-            ES = empty_stat-[bang(d, V)]
+            ( func_arity(PE1, _DecArity) ->
+                to_var(PE1, V, ES1),
+                combine_stats(empty_stat-[app_bang(PE1)], ES1, ES)
+            ;
+                V = PE1,
+                ES = empty_stat-[bang(d, V)]
+            )
         ; PE1 =.. [PE1F, _|_] ->
             to_var(PE1, V, ES1),
             combine_stats(empty_stat-[app_bang(PE1F)], ES1, ES)
