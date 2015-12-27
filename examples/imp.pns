@@ -114,6 +114,41 @@ scope(i) = {
     l1 = k1 % ok
 }.
 
+init_isdef :: void -> void
+    implicit wo isdef
+    sharing init_isdef(v0) = v
+    pre nosharing
+    post nosharing.
+init_isdef(v) = {
+    *isdef = 42
+}.
+
+% fn which introduces state var locally and return value shares with it
+% - this could break things if allowed
+scope_wo :: ref(int) -> ref(int)
+    sharing scope_wo(ip0) = ip
+    pre nosharing
+    post ip = ip0.               % XXX ip = isdef not declared
+    % post ip = ip0; ip = isdef. % XXX isdef is undefined here
+scope_wo(ip) = {
+    !init_isdef(void);  % defines isdef
+    ip1 = isdef;      % sharing between isdef and ip1
+    ip1
+}.
+
+% fn which introduces sharing with state var - need to include such
+% sharing in postcond
+scope_ro :: ref(int) -> ref(int)
+    implicit ro isdef
+    sharing scope_ro(ip0) = ip
+    pre nosharing
+    post nosharing.      % XXX ip = isdef not declared
+    % post ip = isdef.
+scope_ro(ip) = {
+    ip1 = isdef;      % sharing between isdef and ip1
+    ip1
+}.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % stubs
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

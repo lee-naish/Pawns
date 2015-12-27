@@ -468,7 +468,7 @@ fdec_fdec_struct(Fn0, ST, Fn, I) :-
         Fn = '_foobar'
     ).
 
-% store mutable globals
+% store mutable globals, now called state variables
 :- dynamic(mutable_global/1).
 
 % convert term as read from input (external prolog syntax) to internal
@@ -490,6 +490,7 @@ es_as_fdef(T, fdef(PFH, PFB)) :-
 % XX more sanity/error checking, eg definedness
 fdef_fdef_struct(PFH, PFB, FDS) :-
     % xxx(a),
+    retractall(checking_pre_post),
     ( pfdef_fdef(PFH, PFB, FH, FB), fdef_fdef_struct1(FH, FB, FDS) ->
         functor(FH, _, Arity),
         update_max_cl_args(Arity)
@@ -551,8 +552,15 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
     ;
         true
     ),
-    append([WOIs, RWIs, FHAs], AllVs),
+    % append([WOIs, RWIs, FHAs], AllVs),
+    % XXX should include ROIs?? but above seems to work ??
+    % XXX must also include locally introduced state vars from called
+    % fns with wo args; for now we over-approximate with all state vars
+    % XXX NQR if we have a local var the same name as a state vars
+    % (should warn about that at least).
+    findall(SV, mutable_global(SV), AllVs),
     sort(AllVs, Vs1),
+    % writeln(vs1(Vs1)),
     add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs),
     smash_type_vars(VTm).  % XX clobber any local type vars just in case...
     % writeq(Stat), nl.
@@ -753,10 +761,17 @@ cond_share(VTm0, PS, SS0, SS) :-
     ( PS = nosharing ->
         SS = SS0
     ;
+        assert(checking_pre_post),
         pstat_stat(PS, S),
         add_typed_anns(S, S1, VTm0, _VTm),
+        retractall(checking_pre_post),
         alias_stat(S1, SS0, SS)
     ).
+
+% flag set when we do analysis of pre/post conditions to allow
+% multiple defn of vars rather than give error msg
+:- dynamic(checking_pre_post/0).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Some stuff for handling type definitions
@@ -1564,7 +1579,7 @@ pat_arg(E, DV, ESs0, ESs) :-
 % cases statement.
 
 % Add last_stat, used_later(vars), last_use(v) annotations so we put return
-% statements in the compiled code, do tail recustion etc and avoid
+% statements in the compiled code, etc and avoid
 % mutability errors for dead vars (XX probably don't need these annotations
 % on all the stats we put them on)
 % We do bottom to top traversal with current list of used vars (should
@@ -1851,9 +1866,13 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         ,writeln(TFArgs)
     ),
     ( get_assoc(Vl, VTm1, TVl) -> 
-        % need to check if its a pre/postcondition somehow XXXX
-%         writeln('Error: variable redefined '(Vl :: TVl)),
-%         write_src(Ann0),
+        % we check if its a pre/postcondition using dynamic flag
+        ( checking_pre_post ->
+            true % allow redefinition in pre+post conditions
+        ;
+            writeln('Error: variable redefined '(Vl :: TVl)),
+            write_src(Ann0)
+        ),
         % XXX Singleton variable in branch: TFc,Trc,TFArgsc
         % copy_term(TF-Tr-TFArgs, TFc-Trc-TFArgsc),
         deannotate_type(Trc, Tr1),
@@ -1963,19 +1982,19 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         % XX do something to help carry on here rather than fail?
     ),
     % if type of Vl is unknown we infer its same as VrA
-    % if type of Vl is declared previously and this isnt := its an error
+    % if type of Vl is declared previously and this isn't := its an error
     % (unless its a pre/postcondition)
     % if type of Vl is declared here (via ::) we check its
     % an instance of VrA (and pre/post are compat)
     % XXX should treat this as an error now
     ( get_assoc(Vl, VTm1, TVl0) -> 
-        % need to check if its a pre/postcondition somehow XXXX
-%         (AEQ = eq, Vr \= abstract -> % must be := not =
-%             writeln('Error: variable redefined '(Vl :: TVl0)),
-%             write_src(Ann0)
-%         ;
-%             true
-%         ),
+        % we check if its a pre/postcondition using dynamic flag
+        ( AEQ = eq, \+ checking_pre_post ->
+            writeln('Error: variable redefined '(Vl :: TVl0)),
+            write_src(Ann0)
+        ;
+            true
+        ),
 % writeln(lhs_var_defined(Vl,TVl0)),
         ( TVl = TVl0 ->
             true
@@ -3649,16 +3668,37 @@ alias_fn(Fn) :-
     % map('X,vp(X,vpe)', Is, IPs),
     % append(IPs, ResArgs, AllResArgs),
     ( alias_stat(Stat, SSI2, SS) ->
+        % need to check for sharing between args+result which is not
+        % declared in postcondition
+        % also need to check for state vars which are introduced locally by
+        % calling a WO function sharing with args+result; currently we
+        % over-approximate by considering all state vars which are not
+        % implicitly returned XXX NQR if we have local var with the same
+        % name (should warn against this?)
+        findall(SV, (mutable_global(SV),
+                    \+ member(SV, RFAs1)
+                    ), SVs),
         member(S, SS),
         S = s(VP1, VP2),
         VP1 = vp(V1, _),
         VP2 = vp(V2, _),
         V1 \= V2,   % XX ignore self aliasing - should include later?
-        memberchk(vp(V1, _), ResArgs1),
-        memberchk(vp(V2, _), ResArgs1),
-        \+ member(S, PostSS2),
-        print('Error: postcondition violated:'(Fn, VP1, VP2)),
-        nl
+        ( memberchk(vp(V1, _), ResArgs1) ->
+            ( memberchk(vp(V2, _), ResArgs1) ->
+                \+ member(S, PostSS2),
+                print('Error: postcondition violated:'(Fn, VP1, VP2)),
+                nl
+            ;
+                memberchk(V2, SVs),
+                print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
+                nl
+            )
+        ;
+            memberchk(vp(V2, _), ResArgs1),
+            memberchk(V1, SVs),
+            print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
+            nl
+        )
     ;
         write('Oops! alias_stat failed :-('),
         nl
