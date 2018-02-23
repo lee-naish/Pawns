@@ -13,6 +13,7 @@ compile :-
 % compile given command line args
 % XXX Seems to be some inconsistency with SWI-Prolog versions exactly
 % what is included for argv and os_argv ...
+% Also things have changed with strings versus lists of char codes etc
 compile_argv(Argv) :-
     % writeq(argv(Argv)), nl,
     % XX allow some options ??
@@ -26,7 +27,8 @@ compile_argv(Argv) :-
     ),
     member(F, Files),
     name(F, FS),
-    ( append(BFS, ".pns", FS) ->
+    name('.pns', DPNS),
+    ( append(BFS, DPNS, FS) ->
         true
     ;
         writeln('Error: ".pns" extension expected - file ignored'(F)),
@@ -46,15 +48,18 @@ compile_argv(_) :-
 comp(F) :-
     input_file(F),
     name(F, FS),
-    append(BFS, ".pns", FS) ->
+    name('.pns', DPNS),
+    append(BFS, DPNS, FS) ->
     compile(BFS).
 
 % as above having read in file
 compile(BNS) :-
-    append(BNS, ".c", F),
+    name('.c', DC),
+    append(BNS, DC, F),
     name(File, F),
     tell(File),
     % XXX hack to strip of stuff before (*first* - should be last) "/"
+    % XXXX still works with change in strings/char codes etc?
     ( append(_, [0'/|BNS1], BNS) ->
         true
     ;
@@ -119,7 +124,8 @@ compile(BNS) :-
     ;
         told
     ),
-    append(BNS, ".adt", F1),
+    name('.adt', DADT),
+    append(BNS, DADT, F1),
     name(File1, F1),
     tell(File1),
     (   tdef(T, DCs), % XXX currently a hack for _closure type in pawns.pl

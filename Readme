@@ -1,6 +1,6 @@
 Pawns: a declarative/imperative language
 (Pointer Assignment Without Nasty Surprises)
-Version: 1.150821
+Version: 1.180223
 Initial development by Lee Naish
 
 Pawns home page:
@@ -70,6 +70,6 @@ The start of a Pawns source code file, up to the first blank line,
 is ignored as far as code is concerned.  It can be used for a #! line,
 meta-data, directives etc.  These could include a directive to say what
 syntax is used in the rest of the file.  Currently its just ignored,
-so best make sure you start with a block of comments or al least a blank
+so best make sure you start with a block of comments or at least a blank
 line, or your first bit of code will mysteriously get ignored.
 

@@ -22,6 +22,10 @@
 % definitions and unifiy vars so we can cast vars to types including
 % type vars in the prototype.
 
+% XXX some hacking done related to name/2 etc due to the way string
+% handling has changed in Prolog over the years.  Should just go with
+% the modern way of doing things probably.
+
 :- ensure_loaded(library(ordsets)).
 
 % set up operators to enable OK syntax to be used (see *.pns)
@@ -164,7 +168,9 @@ input_file(File) :-
         ( PFB = extern ->
             assert(extern_fn(PFH))
         ; PFB = as_C(Str) ->
-            assert(c_fn_def(PFH, Str))
+            name(AStr, Str),    % convert to retro-strings (char codes)
+            name(AStr, Str1),
+            assert(c_fn_def(PFH, Str1))
         ;
             retractall(var_number(_)),  % reset var numbers (optional)
             assert(var_number(0)),
@@ -254,7 +260,8 @@ do_import((import from F), Ts) :-
 % as above with maybe list of things to import
 do_import1(F, MIs, Ts) :-
     name(F, FS),
-    append(FS, ".pns", FS1),
+    name('.pns', DPNS),
+    append(FS, DPNS, FS1),
     name(F1, FS1),
     nl,
     write('    Importing'(F1)),
@@ -379,7 +386,8 @@ to_export(EDs, (type L = R), TD) :-
         % TD = (type L = abstract)
         % XXX hack for now
         name(F, FS),
-        append("_absdc_", FS, FS1),
+        name('_absdc_', ABSDC),
+        append(ABSDC, FS, FS1),
         name(F1, FS1),
         RHS =.. [F1, int],
         TD = (type L ---> RHS)
@@ -394,7 +402,8 @@ to_export(EDs, (type L ---> R), TD) :-
     ; member((export_name Ac), EDs), csv_list(Ac, As), member(F, As) ->
         % TD = (type L = abstract)
         name(F, FS),
-        append("_absdc_", FS, FS1),
+        name('_absdc_', ABSDC),
+        append(ABSDC, FS, FS1),
         name(F1, FS1),
         RHS =.. [F1, int],
         TD = (type L ---> RHS)
@@ -2469,7 +2478,8 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         % skip error messages about V* (introduced) vars
         (( atomic(V), % in case its abstract(_)
             name(V, VS),
-            append("V", _, VS)
+            name('V', VCodes),
+            append(VCodes, _, VS)
         ) ->
             fail
         ;
