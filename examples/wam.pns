@@ -114,7 +114,7 @@ tderef(p0) = {
 % Currently uses dodgey uninitialised var (will be an error at some
 % stage).  Another option is to add a constant to the type to init the var
 % (not as bad as creating a function symbol but there is an extra test
-% whenever er switch onn the type).
+% whenever we switch on the type).
 newvar :: void -> term
     sharing newvar(v)=t
     pre nosharing
@@ -177,6 +177,7 @@ print_terms(ts) = {
 
 % stubs - we currently need to have definitions so its known these are
 % functions, as we also know the arity
+% Should add io state var here and above
 
 print_var :: ref(term) -> void
     sharing print_var(p0)=voidvar

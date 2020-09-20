@@ -51,12 +51,12 @@ bst_insert_du :: int -> bst -> rbst -> void
     pre nosharing
     post *tp = t.
 bst_insert_du(x, t, tp) = {
-    % want *!tp := node(*lp=mt, n, *rp=mt);
-    *!tp := node(mt, x, mt);
     cases t of {
     case mt:
-        void
+        *!tp := node(mt, x, mt)
     case node(l, n, r):
+        % want *!tp := node(*lp=mt, n, *rp=mt);
+        *!tp := node(mt, n, mt);
         cases *tp of {
         case node(*lp, *np, *rp):
             if x <= n then {

@@ -112,7 +112,7 @@ clean:
 		bst1.h wam.h testio.h isort.h isort.c \
 		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort
-	rm -if tmp* a.out
+	rm -if tmp* a.out errs
 
 # :set noet ts=8
 

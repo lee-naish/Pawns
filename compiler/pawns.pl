@@ -840,7 +840,7 @@ builtin_tdef(bool, [dcons(false, []), dcons(true, [])]).
 builtin_tdef(ref(T), [dcons('_ref', [T])]).
 builtin_tdef(list(T), [dcons(nil, []), dcons(cons, [T, list(T)])]).
 builtin_tdef(maybe(T), [dcons(nothing, []), dcons(just, [T])]).
-builtin_tdef(pair(T1,T2), [dcons(pair, [T1, T2])]). % XX tuple naming?
+builtin_tdef(pair(T1,T2), [dcons(t2, [T1, T2])]). % XX tuple naming?
 builtin_tdef('_type_param'(_T), [dcons('_typeparam', [void])]).
 % we have a _closure type for runtime representation of closures
 % XXX add enough cases here (or assert separately) for max_cl_args
@@ -867,6 +867,7 @@ data_cons(nil).
 data_cons(cons(_,_)).
 data_cons(nothing).
 data_cons(just(_)).
+data_cons(t2(_,_)).
 data_cons('_typeparam'(_)). % not needed?
 data_cons('_cl0'(_,_)).
 data_cons('_cl1'(_,_,_)).
@@ -1059,7 +1060,7 @@ gather_imps((Ic1, Ic2), ROIs, RWIs, WOIs) :-
     append(RWIs1, RWIs2, RWIs),
     append(WOIs1, WOIs2, WOIs).
 
-% take non-empty list of vars eg [v1,v2] and return v1=abstract
+% take non-empty list of vars eg [v1,v2] and return v1=abstract;...
 vars_abs_eq([V], (V = abstract)).
 vars_abs_eq([V|Vs], (V = abstract; Es)) :-
     vars_abs_eq(Vs, Es).
@@ -2559,7 +2560,12 @@ should_bang_lhs(vp(LMV, LVP), SS, MV) :-
 %         member(SP, SS)
 %     ).
 
-% given two alias sets, find additional set of "transitive" edges
+% given two alias sets, find additional set of "transitive" edges,
+% avoiding adding bogus aliasing of different data constructor arguments
+% eg, the first argument of a pair is never an alias of the second
+% argument of a pair or the first argument of a cons, even though they
+% may all be aliases for the same (explicit) ref - see
+% incompatible_dc_path
 % Note: setof fails if goal fails so we need a special case
 % Note: setof returns an ordset (if we change set representation
 % this code may have to be changed)
@@ -2585,6 +2591,7 @@ trans_alias_1(SS0, NSS, SP) :-
     ),
     VP3 \= VP2, % ignore self-aliasing - won't lead to new pair
     VP1 \= VP3, % don't add self-aliasing
+    \+ incompatible_dc_path(VP1, VP3), % no alias of different DC args
     mk_alias_pair(VP1, VP3, SP).
 
 % one (bidirectional) edge in graph - generator
@@ -2595,6 +2602,17 @@ aliases(SS, VP1, VP2) :-
     ;
         member(s(VP2, VP1), SS)
     ).
+
+% the Nth arg of data constructor D can only be aliased to the same,
+% or to an arbitrary ref (ie explicit ref rather than implicit one).
+% Here we check if two var paths have two components at the end which
+% are incompatible (second last components are not ref and not the same)
+incompatible_dc_path(VP1, VP2) :-
+    app_var_path(_, vpc(C1, A1, N1, vpc('_ref', 1, 1, vpe)), VP1),
+    app_var_path(_, vpc(C2, A2, N2, vpc('_ref', 1, 1, vpe)), VP2),
+    \+ (C1 = '_ref', A1 = 1, N1 = 1),
+    \+ (C2 = '_ref', A2 = 1, N2 = 1),
+    \+ (C1 = C2, A1 = A2, N1 = N2).
 
 % Union of two sharing sets with transitivity added
 sharing_union(SS0, SS1, SS) :-
@@ -3334,13 +3352,6 @@ strip_ref_type(Anc, ref_anc(2), Anc).
 
 % alias_stat for (possibly deref) var equality
 alias_stat_veq(VPl, VPr, Ann, SS0, SS) :-
-    ( VPr = vp(abstract(TA), vpe) ->
-        type_var_self_share(TA, abstract(TA), SsA),
-        sort(SsA, SsA1),
-        sharing_union(SsA1, SS0, SS1)
-    ;
-        SS1 = SS0
-    ),
     member(typed(T), Ann),
     type_struct(T, Sum),
     % dataflow a bit tricky here - SSN filled in later
@@ -3352,10 +3363,38 @@ alias_stat_veq(VPl, VPr, Ann, SS0, SS) :-
         LSum = Sum,
         SSN1 = SSN
     ),
-    findall(RP, var_path_shared(SS1, VPr, RP), RPs),
-    rpath_aliases(RPs, VPr, LSum, VPl, SSN),
+    ( VPr = vp(abstract(TA), vpe) ->
+        % for abstract sharing, find all paths for the type (we assume
+        % each component of abstract exists) then create all the sharing
+        % pairs (that includes self sharing for abstract)
+        type_paths(TA, RPs),
+        rpath_aliases(RPs, VPr, LSum, VPl, SSN)
+    ;
+        findall(RP, var_path_shared(SS0, VPr, RP), RPs),
+        rpath_aliases(RPs, VPr, LSum, VPl, SSN)
+    ),
     sort(SSN1, SSNew),
-    sharing_union(SSNew, SS1, SS).
+    sharing_union(SSNew, SS0, SS).
+
+% given path and type, compute type of subterms corresponding to path
+path_type_map(vpe, T, T).
+path_type_map(vpc(DC, _Arity, Arg, Path), T0, T) :-
+    ( tdef(T0, Def0) ->
+        member(dcons(DC, TArgs), Def0),
+        % length(TArgs, Arity), % not needed?
+        nth1(Arg, TArgs, T1),
+        Path = vpc('_ref', _, _, Path1), % will always be a ref in path
+        path_type_map(Path1, T1, T)
+    ;
+        % arrow types don't appear in tdef/2 and we need a special case
+        % here to deal with them, otherwise sharing with abstract breaks
+        % with higher order code.  We fudge things here by just saying
+        % the type is void (so abstract(void) is what we use for sharing
+        % with closure arguments)
+        T0 = arrow(_,_,_,_,_,_,_,_,_,_,_),
+        % DC = cla(N)
+        T = void
+    ).
 
 % from sharing set, find all path suffixes for a given var path
 % assumes self-sharing
@@ -3366,7 +3405,14 @@ var_path_shared(Ss, vp(V, VP), PSuff) :-
     app_vpc(VP, PSuff, PAll).
 
 % from (rhs) path suffixes and vars, construct share pairs
+% (between lhs and rhs components, self-sharing for lhs and, if rhs is
+% abstract/1 selfsharing for that also)
 % We pass in type for LHS to filter and truncate paths as needed
+% and also for fixing the type for abstract/1
+% We use abstract(T) as a variable name, where T is the type of the
+% component of the abstract variable that could be shared.  eg
+% abstract(int) is  used as a fake variable that may share with any
+% int component of an abstract var.
 rpath_aliases([], _, _, _, []).
 rpath_aliases([P|Ps], VPr, LSum, VPl, Ss) :-
     VPr = vp(Vr, Pr),
@@ -3375,9 +3421,21 @@ rpath_aliases([P|Ps], VPr, LSum, VPl, Ss) :-
     app_vpc(Pr, P, Pr1),
     ( trunc_type_path_sum(LSum, Pl1, N) ->
         vpc_drop_last(N, Pl1, Pl2),
-        mk_alias_pair(vp(Vl, Pl2), vp(Vr, Pr1), S1),
-        mk_alias_pair(vp(Vl, Pl2), vp(Vl, Pl2), S2), % self-alias
-        Ss = [S1, S2|Ss1]
+        % for abstract we need to fix the type and include
+        % self-aliasing for abstract of that type
+        ( Vr = abstract(T) ->
+            path_type_map(Pr1, T, T1),
+            Vr1 = abstract(T1),
+            mk_alias_pair(vp(Vr1, vpe), vp(Vr1, vpe), SSSAS),
+            Pr2 = vpe,
+            Ss = [SSSAS, S1, S2|Ss1]
+        ;
+            Pr2 = Pr1,
+            Vr1 = Vr,
+            Ss = [S1, S2|Ss1]
+        ),
+        mk_alias_pair(vp(Vl, Pl2), vp(Vr1, Pr2), S1),
+        mk_alias_pair(vp(Vl, Pl2), vp(Vl, Pl2), S2) % self-alias
     ;
         Ss = Ss1
     ),
@@ -3588,6 +3646,7 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
 % eq_dc handling
 % XXXX do we miss adding sharing between different paths for
 % Vl if different VPr's share???
+% YES- BUG, eg see sa(*xp=1; p=t2(xp,xp))
 alias_stat_dc(_, _, _, _, _, [], _, []).
 alias_stat_dc(Vl, LSum, DC, Arity, A, [VPr|Args], SS0, SSN) :-
     findall(RP, var_path_shared(SS0, VPr, RP), RPs),
@@ -4140,6 +4199,16 @@ prolog
 
 spy(rm_unshared_var_ref_aliases).
 sa(*zp = 42; *wp = 43;    *yp = zp;    *xp = yp;    *yp := wp).
+
+retractall(tdef(T, D)), builtin_tdef(T, D), assert(tdef(T, D)), fail.
+retractall(nfdec_struct(Fn1, T)), builtin_fdec((Fn :: ST)), fdec_fdec_struct(Fn, ST, Fn1, T), assert(nfdec_struct(Fn1, T)), fail.
+retractall(func_arity(Fn, Arity)), builtin_func_arity(Fn, Arity), assert(func_arity(Fn, Arity)), fail.
+
+% missing s(p.t2/2.1._ref._ref,p.t2/2.2._ref._ref) ???
+sa(*xp=1; p=t2(xp,xp)).
+
+alias_stat(eq_var(x,abstract(list(pair(int, int))))- [typed(list(pair(int, int)))], [], SS), print(SS), fail.
+
 */
 
 x :- spy(xxx).
