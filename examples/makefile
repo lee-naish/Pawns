@@ -90,6 +90,8 @@ isort.c: isort.pns array.pns io.pns pawns.h builtin.h
 
 isort: isort_main.c isort.c io.c
 
+testuf.c: testuf.pns union_find.pns io.pns pawns.h builtin.h
+
 .bogus: test
 test: bst pbst p1bst isort testio
 	echo TESTING bst:::::::::::::::::::::::::::::::::::: > /dev/null
@@ -109,7 +111,7 @@ clean:
 	rm -f *.adt *.o *.h.gch bst.h bst.c p1bst.h pbst.h p1bst.c \
 		pbst.c testio.c wam.c wam.h \
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst_poly.h \
-		bst1.h wam.h testio.h isort.h isort.c \
+		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort
 	rm -if tmp* a.out errs

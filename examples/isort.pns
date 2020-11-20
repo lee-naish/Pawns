@@ -42,8 +42,7 @@ isort_s(a, i, s) = {
     else {
         aip = array_nthp(a, i);
         ai = *aip;
-	% XXX following causes sharing anal to barf a bit
-        % !print_int(500); !print_int(i), !print_int(ai);
+        % !print_int(500); !print_int(i); !print_int(ai);
         ins(ai, aip, !a, i);
         % print_array(a);
         return(isort_s(!a, i+1, s))

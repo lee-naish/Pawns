@@ -205,4 +205,6 @@ eq_ptr :: ref(term) -> ref(term) -> bool
     sharing eq_ptr(!p0,!p1)=r
     pre p0=p1
     post nosharing.
-eq_ptr(x, y) = true.
+% eq_ptr(x, y) = true.
+eq_ptr(x, y) = as_C
+    "{if (x == y) return PAWNS_true(); else return PAWNS_false();}".

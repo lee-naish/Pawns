@@ -568,12 +568,31 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
     % XXX NQR if we have a local var the same name as a state vars
     % (should warn about that at least).
     findall(SV, mutable_global(SV), AllVs),
-    sort(AllVs, Vs1),
+    % need to include mutable args also!
+    type_to_banged(TF, BVs),
+    append(BVs, AllVs, AllVs1),
+    sort(AllVs1, Vs1),
     % writeln(vs1(Vs1)),
     add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs),
     smash_type_vars(VTm).  % XX clobber any local type vars just in case...
     % writeq(Stat), nl.
     % XX should put list of type vars in fdef_struct?
+
+% from type of defn, extract banged arguments. They are typically in the
+% innermost arrow as the outer arrows just create closures (but not if a
+% function is returned). We scan down through the arrows until we find a
+% non-empty list of banged arguments and return them (otherwise return
+% [])
+type_to_banged(TF, BVs) :-
+    ( TF = arrow(_, TF1, BVs1, _, _, _, _, _, _, _, _) ->
+        ( BVs1 = [] ->
+            type_to_banged(TF1, BVs)
+        ;
+            BVs = BVs1
+        )
+    ;
+        BVs = []
+    ).
 
 % return global var/fn-type assoc for implicit args Is
 globals_type_assoc(Is, VTm) :-
@@ -3379,7 +3398,9 @@ alias_stat_veq(VPl, VPr, Ann, SS0, SS) :-
 % given path and type, compute type of subterms corresponding to path
 path_type_map(vpe, T, T).
 path_type_map(vpc(DC, _Arity, Arg, Path), T0, T) :-
-    ( tdef(T0, Def0) ->
+    ( T0 = ref(T1) ->
+        path_type_map(Path, T1, T)
+    ; tdef(T0, Def0) ->
         member(dcons(DC, TArgs), Def0),
         % length(TArgs, Arity), % not needed?
         nth1(Arg, TArgs, T1),
@@ -4168,6 +4189,7 @@ sa(t = rnode(2, cons(rnode(3,nil),nil))).
 sa(t = rnode(2, nil);ts = cons(t, nil)).
 
 
+san('testuf.pns').
 san('eval.pns').
 san('wam.pns').
 san('isort.pns').

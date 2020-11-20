@@ -1,0 +1,46 @@
+% test union-find stuff
+
+import from union_find.
+% import print_ref from io.
+import from io.
+
+main :: void -> void
+    implicit rw io.
+main(v) = {
+    !put_char(10);
+    s1 = singleton(void);
+    s2 = singleton(void);
+    s3 = singleton(void);
+    s4 = singleton(void);
+    s5 = singleton(void);
+    s6 = singleton(void);
+    s7 = singleton(void);
+    s8 = singleton(void);
+    s9 = singleton(void);
+    !print_raw(*s1);
+    !print_raw(*s2);
+    !print_raw(*s3);
+    !print_raw(*s4);
+    !print_raw(*s5);
+    !print_raw(*s6);
+    !print_raw(*s7);
+    !put_char(10);
+    !print_raw(*find(!s1));
+    !print_raw(*find(!s1));
+    !print_raw(*find(!s5));
+    !print_raw(*find(!s6));
+    merge(!s5, !s6);
+    !put_char(10);
+    !put_char(10);
+    !print_raw(*s5);
+    !print_raw(*s6);
+    !print_raw(*find(!s5)) !s6;
+    !print_raw(*find(!s6)) !s5;
+    merge(!s7, !s6) !s5;
+    merge(!s1, !s6) !s5!s7;
+    !put_char(10);
+    !print_raw(*find(!s1)) !s5!s6; % !s7 (but s7 is dead)
+    !print_raw(*find(!s5)) !s6;
+    !print_raw(*find(!s6));
+    void
+}.

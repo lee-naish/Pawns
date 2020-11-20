@@ -9,3 +9,4 @@ alias cleann='rm\
 	 cord.adt cord.c cord.h \
 	'
 alias gcb='gcc -O3   bst_main.c apply.c ; ./a.out'
+alias tuf='make testuf ; ./testuf'

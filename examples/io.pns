@@ -9,6 +9,7 @@ export_imp
     read_line,
     read_word,
     print_int,
+    print_raw,
     print_string,
     put_char,
     get_char.
@@ -66,6 +67,13 @@ print_int :: int -> void
 	implicit rw io.
 print_int(i) = as_C "{	\n\c
     printf(\"%ld\\n\", (long)i);	\n\c
+}".
+
+% useful for debugging stuff with pointers etc
+print_raw :: T -> void
+	implicit rw io.
+print_raw(i) = as_C "{	\n\c
+    printf(\"%lx\\n\", (long)i);	\n\c
 }".
 
 print_string :: string -> void

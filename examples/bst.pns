@@ -88,7 +88,7 @@ bst_sum(t) = {
 % counter for nodes
 !counter :: ref(int).
 
-% XXXX breaks things:
+% XXXX breaks things?:
 % init_counter :: void
 % init_counter :: void -> void
 

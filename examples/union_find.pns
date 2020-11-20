@@ -1,0 +1,110 @@
+% Union-Find data structure using destructive update to get
+% asymptotically optimal performance (and should be reasonable
+% constant factors).
+
+export_imp
+    singleton, % create singleton set/element
+    find,      % find representative element from set/element
+    merge,     % merge/union two sets
+    same,      % test if two elements are in the same set
+    eq_ptr,    % should be built-in (test for equality of elements)
+    uf_node,   % type for DS used
+    element.   % type for elements = ref(uf_node)
+
+% Rather than use an array of integers (with max size or the
+% complexities of dynamic arrays) we use pointers to nodes which are
+% either root nodes containing a rank (so chain length can be reduced)
+% or child nodes, which point to their parent.  New elements can be
+% added just by creating a new root node (with zero rank). Rank is only
+% stored at root nodes (saves a little space but no big deal) and we
+% don't use self-pointers for root nodes (so some tricky coding tricks
+% can't be used)
+
+type uf_node ---> root(int) ; child(uf_node).
+type element = ref(uf_node).
+
+% return new singleton set - a pointer to a root node with rank 0
+% We explicitly state nosharing because we don't want sharing with
+% abstract as destructive update may be used later.
+singleton :: void -> element
+    sharing singleton(v) = a
+    pre nosharing
+    post nosharing.
+singleton(v) = {
+    *rp = root(0);
+    rp
+}.
+
+% find representative element of set from an element
+% Result may share with argument, which may be updated to shorten chain.
+% Recursive coding that effectively traverses the chain twice and
+% collapses it completely (child nodes that are no longer needed can be
+% garbage collected)
+% For efficiency it might be best to unfold the recursion one step as
+% this is the "inner loop" of union-find??
+find :: element -> element
+    sharing find(!np) = rp
+    pre nosharing
+    post rp = np.
+find(np) = {
+    cases *np of {
+    case root(rank): np
+    case child(*pparent):
+        rp = find(!pparent) !np;
+        *!pparent := *rp !np!rp; % collapse chain (rp not really changed)
+        rp
+    }
+}.
+
+% merge (create union of) two element sets
+% We allow sharing between arguments in precondition. Normally there
+% would be no sharing but because sharing analysis may lose precision we
+% want to allow the compiler to accept possible sharing here. Either
+% argument may be updated.
+% The rank is used to make the tree reasonably balanced in the worst
+% case - its an upper bound on the height. The root of the
+% smaller-ranked tree is destructively updated to be a child of the
+% other tree, whose rank is incremented (the rank of the smaller tree
+% can be garbage collected).
+merge :: element -> element -> void
+    sharing merge(!ap, !bp) = v
+    pre ap = bp
+    post ap = bp.
+merge(ap, bp) = {
+    arp = find(!ap) !bp;
+    brp = find(!bp) !arp!ap;
+    cases *arp of {
+    case root(*arankp):
+        cases *brp of {
+        case root(*brankp):
+            if *arankp <= *brankp then {
+                *!arp := child(*brp) !ap!bp;
+                *!brankp := *brankp + 1 !ap!bp
+            } else {
+                *!brp := child(*arp) !ap!bp;
+                *!arankp := *arankp + 1 !ap!bp
+            }
+        }
+    }
+}.
+
+% test if two elements are in the same set
+same :: element -> element -> bool
+    sharing same(!ap, !bp) = r
+    pre ap = bp
+    post nosharing.
+same(ap, bp) = {
+    arp = find(!ap) !bp;
+    brp = find(!bp) !arp!ap;
+    eq_ptr(!arp, !brp) !ap!bp
+}.
+
+% equality for pointers should be built in
+eq_ptr :: element -> element -> bool
+    sharing eq_ptr(!p0,!p1)=r
+    pre p0=p1
+    post nosharing.
+eq_ptr(x, y) = as_C
+    "{if (x == y) return PAWNS_true(); else return PAWNS_false();}".
+
+% :set ts=4 et
