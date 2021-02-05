@@ -468,13 +468,16 @@ cases_eqlhss([case(_, S)|Cs]) -->
 % indentation added to make it more human readable
 % list of write-only vars is passed in so they can be restored just
 % before return statement
+% We use memberchk(typed(T), Ann0) rather than member because with explicit
+% type annotations in the source there can be more than on typed/1
+% annotation (XXX probably should fix this?)
 stat_c_stat(Ind, GVs, C0-_) :-
     C0 = seq(Sa0, Sb0),
     stat_c_stat(Ind, GVs, Sa0),
     stat_c_stat(Ind, GVs, Sb0).
 stat_c_stat(Ind, GVs, C0-Ann0) :-
     C0 = cases(V, Cases0),
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     tab(Ind),
     write('switch_'),
     type_adt_type(T),
@@ -483,7 +486,7 @@ stat_c_stat(Ind, GVs, C0-Ann0) :-
     tab(Ind),
     writeln('end_switch()').
 stat_c_stat(Ind, _GVs, eq_var(Vl, Vr)-Ann0) :-
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     ( T = void -> % just ignore v = void
         true
     ;
@@ -496,7 +499,7 @@ stat_c_stat(Ind, _GVs, eq_var(Vl, Vr)-Ann0) :-
         writeln(;)
     ).
 stat_c_stat(Ind, _GVs, eq_deref(Vl, Vr)-Ann0) :-
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     % ( T = void -> % just ignore v = *voidp % XXX??
     tab(Ind),
     type_adt_type(T),
@@ -510,7 +513,7 @@ stat_c_stat(Ind, GVs, deref_eq(Vl, Vr)-Ann0) :-
     ( mutable_global(Vl) ->
         stat_c_stat(Ind, GVs, assign(Vl, Vr)-Ann0)
     ;
-        member(typed(T), Ann0),
+        memberchk(typed(T), Ann0),
         % ( T = void -> % just ignore *v = void % XXX??
         tab(Ind),
         type_adt_type(ref(T)),
@@ -532,7 +535,7 @@ stat_c_stat(Ind, GVs, C-Ann0) :-
     C = var_stat(V),
     ( member(last_stat, Ann0) ->
         restore_globs(Ind, GVs),
-        member(typed(T), Ann0),
+        memberchk(typed(T), Ann0),
         tab(Ind),
         write(return),
         ( T = void ->
@@ -541,7 +544,7 @@ stat_c_stat(Ind, GVs, C-Ann0) :-
             write(''(V))
         ),
         writeln(;)
-%     ; member(typed(arrow(_, _, _, _, _, _, _, _, _, _, _)), Ann0) ->
+%     ; memberchk(typed(arrow(_, _, _, _, _, _, _, _, _, _, _)), Ann0) ->
 %         % must be function pointer but there are no args
 %         write('(*'),
 %         write(V),
@@ -559,7 +562,7 @@ stat_c_stat(_Ind, _GVs, C-_) :-
     C = empty_stat. % not needed?
 stat_c_stat(Ind, _GVs, C-Ann0) :-
     C = eq_dc(Vl, DC, _, Args),
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     ( T = void -> % just ignore v = void
         true
     ;
@@ -579,7 +582,7 @@ stat_c_stat(Ind, _GVs, C-Ann0) :-
     ).
 stat_c_stat(Ind, _GVs, C-Ann0) :-
     C = eq_sapp(Vl, F, Args),
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     tab(Ind),
     ( T = void ->
         true
@@ -619,7 +622,7 @@ stat_c_stat(Ind, _GVs, C-Ann0) :-
     C = eq_app(Vl, F, Args),
     % XXX what do we do about void->T functions in closures?
     % maybe have separate data constructor for them
-    member(typed(T), Ann0),
+    memberchk(typed(T), Ann0),
     eq_app_c(Ind, T, Vl, F, Args).
 %     tab(Ind),
 %     ( T = void ->

@@ -20,3 +20,7 @@ This is a bit of a pain to fix with higher order etc?
 Maximum number of args in closure - should use polymorphic
 list of args if there are too many.
 
+see example/bst_poly.pns
+p ../examples/
+~/bin/pnsc bst_poly.pns
+vim bst_poly.pns

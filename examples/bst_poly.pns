@@ -1,10 +1,12 @@
 % bst stuff: conversion from list of ints to bst of ints destructively,
 % printing tree,...
-% Simple version with little polymorphism/higher order (with polymorphism
-% you typically get more sharing because the values in the tree are not
-% atomic) and with higher order you might potentially get less precise
-% sharing analysis.
+% Version with polymorphism and higher order. More potential sharing so
+% we need renaming of functions to get versions with more specific types
+% and different sharing information. A couple of buggy versions thrown
+% in (detected by the compiler) to illustrate potential problems with
+% type preservation when polymorphism is mixed with destructive update.
 
+import from addlist.
 import print_int from io.
 
 type bst(T) ---> mt ; node(bst(T), T, bst(T)).
@@ -31,85 +33,124 @@ ints1(v) = {
     return(is)
 }.
 
-% XX should write polymorphic HO version which has leq as arg
-% convert list to ibst - note this appears "pure" to callers
+% Convert int list to ibst - note this appears "pure" to callers.
+% Defined in terms of (renamed) HO polymorphic functions
 list_bst :: ints -> ibst
     sharing list_bst(xs) = xt
-    pre nosharing
+    pre xs = abstract
     post nosharing.
 list_bst(xs) = {
     % we need *tp to be type ibst, not bst(T) since its updated
     *tp = (mt :: ibst);
-    list_bst_du(xs, !tp);
+    ilist_bst_du(xs, (<=), !tp);
     return(*tp)
 }.
 
-% dodgey version which could violate type preservation
-% error with type checking
+% Dodgey version which could violate type preservation.
+% Error detected during type checking
 bug1_list_bst :: ints -> ibst
     sharing list_bst(xs) = xt
-    pre nosharing
+    pre xs = abstract
     post nosharing.
 bug1_list_bst(xs) = {
     *tp = mt;               % tp :: ref(bst(T))
-    list_bst_du(xs, !tp);   % mutates tp to ref(ibst)
-    % could use tp here in context where ref(bst(T)) expected,
-    % but tp is now a ref(ibst)
+    ilist_bst_du(xs, (<=), !tp);   % mutates tp to ref(ibst)
+    % potential use of tp here in context where ref(bst(T)) expected,
+    % but tp is now a ref(ibst) so type preservation would be violated
     return(*tp)
 }.
 
-% dodgey version which could violate type preservation
-% error with sharing analysis
+% Dodgey version which could violate type preservation.
+% Error detected during sharing analysis
 bug2_list_bst :: ints -> ibst
     sharing list_bst(xs) = xt
-    pre nosharing
+    pre xs = abstract
     post nosharing.
 bug2_list_bst(xs) = {
     *tp1 = mt;                  % tp1 :: ref(bst(T))
     tp2 = (tp1 :: ref(ibst));   % cast tp1 to get tp2
-    list_bst_du(xs, !tp2) !tp1; % tp1 implicitly smashed
-    % could use tp1 here in context where ref(bst(T)) expected,
-    % but tp1 is now a ref(ibst)
+    ilist_bst_du(xs, (<=), !tp2) !tp1; % tp1 implicitly smashed
+    % potential use of tp1 here in context where ref(bst(T)) expected,
+    % but tp1 is now a ref(ibst) so type preservation would be violated
     *tp2
 }.
 
-% destructively add list of ints to tree we have ptr to
-list_bst_du :: ints -> ribst -> void
-    sharing list_bst_du(xs, !tp) = v
+% Attempt to use polymorphic HO code without renaming.
+% The polymorphic code has list and tree elements sharing and the list
+% cannot be abstract since the tree is updated (the elements are not
+% actually updated but the declarations are not precise enough to convey
+% that).
+bug3_list_bst :: ints -> ibst.
+bug3_list_bst(xs) = {
+    % we need *tp to be type ibst, not bst(T) since its updated
+    *tp = (mt :: ibst);
+    list_bst_du(xs, (<=), !tp); % xs is abstract+looks like it shares with tp:(
+    return(*tp)
+}.
+
+% we rename the polymorphic code and use an instance of the types and
+% different sharing (the list abstract but not sharing with the tree)
+renaming
+    ilist_bst_du = list_bst_du,
+    ibst_insert_du = bst_insert_du.
+
+ilist_bst_du :: ints -> (int -> int -> bool) -> ribst -> void
+    sharing ilist_bst_du(xs, !tp) = v
+    pre xs = abstract
+    post nosharing.
+ibst_insert_du :: int -> (int -> int -> bool) -> ribst -> void
+    sharing ibst_insert_du(x, leq, !tp) = v
     pre nosharing
     post nosharing.
-list_bst_du(xs, tp) = {
+
+% Destructively add list of elements to tree we have ptr to.
+% In general there will be sharing between list and tree elements and
+% because the tree is destructively updated, the list (and its elements)
+% but not be abstract (the fact that *only the outer structure* of the
+% tree is updated is not captured by the declarations).  However, if
+% the element type is atomic there is no sharing so
+% by renaming this function (and bst_insert_du) and giving
+% a more specific type, different sharing can be specified, including
+% the list being abstract.
+list_bst_du :: list(T) -> (T -> T -> bool) -> ref(bst(T)) -> void
+    sharing list_bst_du(xs, letest, !tp) = v
+    pre cases xs of {case cons(x, xs1): *tp = node(mt, x, mt)}
+    % post cases xs of {case cons(x, xs1): *tp = node(mt, x, mt)}.
+    post nosharing.
+    % would be nice to be able to avoid cases and use eg
+    % xs = cons(x, nil); *tp = node(mt, x, mt)
+list_bst_du(xs, letest, tp) = {
     cases xs of {
     case cons(x, xs1):
-        bst_insert_du(x, !tp);
-        list_bst_du(xs1, !tp);
+        bst_insert_du(x, letest, !tp) !xs1; % xs not updated
+        list_bst_du(xs1, letest, !tp) !xs1; % xs not updated
         return
     case nil:
         return
     }
 }.
 
-% destructively add int to tree we have ptr to
-% - traverse down to leaf and clobber it (while loop would be nice)
-bst_insert_du :: int -> ribst -> void
-    sharing bst_insert_du(x, !tp) = v
-    pre nosharing
+% destructively add element to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice?)
+bst_insert_du :: T -> (T -> T -> bool) -> ref(bst(T)) -> void
+    sharing bst_insert_du(x, letest, !tp) = v
+    pre *tp = node(mt, x, mt)
     post nosharing.
-bst_insert_du(x, tp) = {
+    % post *tp = node(mt, x, mt).
+bst_insert_du(x, letest, tp) = {
     cases *tp of {
     case mt:
         *!tp := node(mt, x, mt)
     case node(*lp, n, *rp):
-        if leq(x, n) then
-            bst_insert_du(x, !lp) !tp
+        if letest(x, n) then
+            bst_insert_du(x, letest, !lp) !tp
         else
-            bst_insert_du(x, !rp) !tp
+            bst_insert_du(x, letest, !rp) !tp
     }
 }.
 
 % print all elements of tree (inorder, no indentation etc to show tree
-% structure).  Should support declaration of implicit io parameter
-% implicit !io
+% structure).
 print_tree :: ibst -> void
     implicit rw io
     sharing print_tree(t)=voidvar
@@ -142,6 +183,22 @@ print_ints(t) = {
         !print_int(n);
         !print_ints(r);
         return
+    }
+}.
+
+
+% see bst.pns for version with encapsulated counter
+% Could do a higher order version with a foldr for trees
+bst_sum :: ibst -> int
+    sharing bst_sum(t) = i
+    pre t = abstract
+    post nosharing.
+bst_sum(t) = {
+    cases t of {
+    case mt:
+        0
+    case node(l, n, r):
+        bst_sum(l) + n + bst_sum(r)
     }
 }.
 

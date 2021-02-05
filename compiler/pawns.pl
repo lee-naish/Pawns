@@ -43,6 +43,8 @@
 :- op(705, xfx, (=)). % shouldn't break things; allows a = 1<2
 :- op(700, xfx, (<=)). % Prolog uses =<
 :- op(1150, fx, (type)).
+:- op(1150, fx, (renaming)).
+:- op(1100, xfx, (with)).
 :- op(1180, xfx, (--->)). % XXX could we use simpler arrow??
 % :- op(15, xfx, (::)).
 :- op(1150, xfx, (::)). % XX ???
@@ -229,6 +231,9 @@ skip_to_blank_line(Curr) :-
 % (desired) exports and fudging definitions of exported type names and
 % appending the lists of imported terms to the list of terms in the file
 % to be compiled.
+% Renaming declarations are handled here, taking the declarations and
+% function definitions and producing extra (renamed) function
+% definitions.
 in_as(As) :-
     input_terms(Ts),
     split(is_import_def, Ts, TIDefs, Ts1),
@@ -240,13 +245,16 @@ in_as(As) :-
     % XXX should also assert exported things so non-exported things
     % can be declared static
     append([Ts2|ITss], Ts3),
-    split(is_type_def, Ts3, TTDefs, TOs),
+    split(is_type_def, Ts3, TTDefs, Ts4),
+    split(is_renaming_def, Ts4, TRDefs, TOs),
     split(is_fn_dec, TOs, TFDecs, TFDefs),
     map(es_as_type, TTDefs, ATDefs),
-    % map(es_as_fdec, TFDecs, AFDecs),
     map(es_as_fdef, TFDefs, AFDefs),
+    map(rename_fdefs(AFDefs), TRDefs, ARFDefss),
     append(TFDecs, AFDefs, As1),
-    append(ATDefs, As1, As).
+    append(ARFDefss, ARFDefs),
+    append(ARFDefs, As1, As2),
+    append(ATDefs, As2, As).
 
 % XX should be able to rename imports also ideally (problem with
 % compilation to C - need to have unique names for exported things)
@@ -422,6 +430,9 @@ is_type_def((type _ ---> _)).
 % XX fix if we tweek op priorities
 is_fn_dec((_ :: _)).
 
+% checks if term is a renaming dec
+is_renaming_def((renaming _)).
+
 % list of terms in input
 input_terms(As) :-
     read(A),
@@ -442,6 +453,7 @@ es_as_type((type TName ---> PTd), tdef(TName, CTs)) :-
     ( pctd_cts(PTd, CTs) ->
         true
     ;
+        nl,
         writeln('Error: malformed type definition:'((type TName ---> PTd))),
         TName = '_invalid',
         CTs = []
@@ -459,6 +471,7 @@ fdec_fdec_struct(Fn0, ST, Fn, I) :-
     ( canon_type_name(ST, T) ->
         I = T
     ;
+        nl,
         writeln('Error: malformed function type declaration:'(Fn0 :: T)),
         canon_type_name((void -> void
                     sharing f(v) = r pre nosharing post nosharing), I)
@@ -468,17 +481,84 @@ fdec_fdec_struct(Fn0, ST, Fn, I) :-
         ( I = ref(_) ->
             true
         ;
+            nl,
             writeln('Error: mutable global must have ref type: '(Fn0 :: T))
         )
     ; atom(Fn0) ->
         Fn = Fn0
     ;
+        nl,
         writeln('Error: malformed declaration:'(Fn0 :: T)),
         Fn = '_foobar'
     ).
 
 % store mutable globals, now called state variables
 :- dynamic(mutable_global/1).
+
+% renaming declaration handling:
+% Given list of all functions and a renaming def, return a list of
+% renamed functions
+rename_fdefs(FDefs, Dec, RFdefs) :-
+    ( Dec = (renaming REqc with WEqc) ->
+        renaming_rhs_to_list(REqc, RPs),
+        renaming_rhs_to_list(WEqc, WRPs),
+        append(WRPs, RPs, AllRPs),
+        map(find_and_rename(FDefs, AllRPs), RPs, RFdefs)
+    ; Dec = (renaming REqc) ->
+        renaming_rhs_to_list(REqc, RPs),
+        map(find_and_rename(FDefs, RPs), RPs, RFdefs)
+    ).
+
+% convert RHS of renaming declaration to list of pairs
+renaming_rhs_to_list(REqc, RPs) :-
+    (REqc = (L = R, REqc1) ->
+        RPs = [L-R|RPs1],
+        renaming_rhs_to_list(REqc1, RPs1)
+    ; REqc = (L = R) ->
+        RPs = [L-R]
+    ;
+        nl,
+        writeln('Error: malformed renaming declaration RHS:'(REqc)),
+        RPs = []
+    ).
+
+% from list of function definitions and list of renaming pairs, create
+% list of new renamed function definitions
+% XXX should have more resilient error handling
+find_and_rename(FDefs, AllRPs, _-OF, RFdef) :-
+    (member(fdef(PFH, PFB), FDefs), functor(PFH, OF, _) ->
+        rename_term(AllRPs, PFH, RPFH),
+        rename_term(AllRPs, PFB, RPFB),
+        RFdef = fdef(RPFH, RPFB)
+    ;
+        writeln('Error: no function definition to rename'(OF)),
+        % XXX might cause failure later
+        RFdef = fdef(dummy_renamed_function(v), v)
+    ).
+
+% replace function symbols in term
+rename_term(RPs, T0, T) :-
+    functor(T0, F, N),
+    (member(RF-F, RPs) ->
+        true
+    ;
+        RF = F
+    ),
+    functor(T, RF, N),
+    rename_term_args(RPs, N, T0, T).
+
+% as above for args
+rename_term_args(RPs, N, T0, T) :-
+    ( N =< 0 ->
+        true
+    ;
+        arg(N, T0, A0),
+        arg(N, T, A),
+        rename_term(RPs, A0, A),
+        N1 is N - 1,
+        rename_term_args(RPs, N1, T0, T)
+    ).
+
 
 % convert term as read from input (external prolog syntax) to internal
 % representation (abstract syntax tree) - fn defs
@@ -513,6 +593,7 @@ fdef_fdef_struct(PFH, PFB, FDS) :-
 fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
     FH =.. [FName|FHAs],
     writeln('    type analysis of '(FName)),
+    xxx(a),
     map(arg_fdefarg, FHAs, FAs),
     nfdec_struct(FName, TF),
     % we replace distinct type vars with distinct new ground
@@ -614,11 +695,15 @@ extract_ret_type(A, T0, TAs, T) :-
     (A = 0 ->
         TAs = [],
         T = T0
-    ;
-        T0 = arrow(TA, T1, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs),
+    ; T0 = arrow(TA, T1, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs) ->
         TAs = [TA|TAs1],
         A1 is A - 1,
         extract_ret_type(A1, T1, TAs1, T)
+    ;
+        writeln('Error: not enough arrows in type'(T0)),
+        % may barf later
+        TAs = [],
+        T = T0
     ).
 
 % given type, strip off outer Arity arrows to give type of each arg and
@@ -790,7 +875,11 @@ cond_share(VTm0, PS, SS0, SS) :-
         SS = SS0
     ;
         assert(checking_pre_post),
-        pstat_stat(PS, S),
+        ( pstat_stat(PS, S) ->
+            true
+        ;
+        writeln('Error: ill-formed pre/post condition'(PS))
+        ),
         add_typed_anns(S, S1, VTm0, _VTm),
         retractall(checking_pre_post),
         alias_stat(S1, SS0, SS)
@@ -860,7 +949,7 @@ builtin_tdef(ref(T), [dcons('_ref', [T])]).
 builtin_tdef(list(T), [dcons(nil, []), dcons(cons, [T, list(T)])]).
 builtin_tdef(maybe(T), [dcons(nothing, []), dcons(just, [T])]).
 builtin_tdef(pair(T1,T2), [dcons(t2, [T1, T2])]). % XX tuple naming?
-builtin_tdef('_type_param'(_T), [dcons('_typeparam', [void])]).
+builtin_tdef('_type_param'(_T), [dcons('_type_param', [void])]).
 % we have a _closure type for runtime representation of closures
 % XXX add enough cases here (or assert separately) for max_cl_args
 % or allow general case and/or optimise some cases
@@ -887,7 +976,7 @@ data_cons(cons(_,_)).
 data_cons(nothing).
 data_cons(just(_)).
 data_cons(t2(_,_)).
-data_cons('_typeparam'(_)). % not needed?
+data_cons('_type_param'(_)). % not needed?
 data_cons('_cl0'(_,_)).
 data_cons('_cl1'(_,_,_)).
 data_cons('_cl2'(_,_,_,_)).
@@ -4045,7 +4134,11 @@ lookup_old_assoc(Key, Assoc, Value, NewAssoc) :-
     ( get_assoc(Key, Assoc, Value) ->
         NewAssoc = Assoc
     ;
-        writeln('Error: undefined variable '(Key)),
+        ( checking_pre_post ->
+            true
+        ;
+            writeln('Error: undefined variable '(Key))
+        ),
         put_assoc(Key, Assoc, Value, NewAssoc)
     ).
 
@@ -4216,6 +4309,8 @@ spy(arrow_to_sharing_dus).
 [pawns].
 [pawns,comp].
 ['../pawns.pl', '../comp.pl'].
+['../compiler/pawns.pl', '../compiler/comp.pl'].
+
 
 prolog
 

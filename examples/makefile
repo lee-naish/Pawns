@@ -58,7 +58,7 @@ ADTPP=~/bin/adtpp
 %.h : %.adt
 	$(ADTPP) $<
 
-all: bst pbst
+all: bst pbst bst_poly
 
 pawns.h: ../compiler/pawns.h
 	cp $< .
@@ -69,12 +69,16 @@ builtin.h: ../compiler/builtin.h
 # bst.pns imports from addlist.pns, io.pns so we put the following dependency
 bst.c: bst.pns addlist.pns io.pns pawns.h builtin.h
 
+bst_poly.c: bst_poly.pns addlist.pns io.pns pawns.h builtin.h
+
 pbst.c: pbst.pns addlist.pns io.pns pawns.h builtin.h
 
 p1bst.c: p1bst.pns addlist.pns io.pns pawns.h builtin.h
 
 # bst, pbst use main() defined in bst_main.c (not bst_main.pns)
 bst: bst.o bst_main.o io.o addlist.o
+
+bst_poly: bst_poly.o bst_main.o io.o addlist.o
 
 pbst: pbst.o bst_main.o io.o addlist.o
 
@@ -108,9 +112,9 @@ test: bst pbst p1bst isort testio
 
 .bogus: clean
 clean:
-	rm -f *.adt *.o *.h.gch bst.h bst.c p1bst.h pbst.h p1bst.c \
+	rm -f *.adt *.o *.h.gch bst.h bst.c bst_poly.c p1bst.h pbst.h p1bst.c \
 		pbst.c testio.c wam.c wam.h \
-		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst_poly.h \
+		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort
