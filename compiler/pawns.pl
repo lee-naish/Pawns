@@ -1235,9 +1235,9 @@ pstat_stat(PS, S) :-
         pstat_stat(PS1, S1),
         pstat_stat(PS2, S2),
         S = seq(S1, S2)-[]
-    % XXXX explicit type info better attached to RHS, eg
-    % *tp = (mt :: bst(int)) (done, need to clean up old stuff)
-    % With explicit types, add extra of_type(bst(int)) annotation and in
+    % XXX explicit type info can now be attached to RHS, eg
+    % *tp = (mt :: bst(int)) (need to clean up this old stuff?)
+    % With explicit types, add extra typed(bst(int)) annotation and in
     % type analysis check inferred type is an instance.  Could allow for
     % var = var only, or add extra eqns and only check for annotation
     % for such eqns to simplify code.  Process in add_typed_anns_veq?
@@ -1445,7 +1445,6 @@ pstat_eq_stat(PEl, PEr, S) :-
     ).
 
 % convert expression to var plus extra stat(s)
-% XXXX add processing of type annotations
 % XXX add processing of && and || (generate case statement - hopefully
 % gcc -O3 is up to the challenge!)
 to_var(PE, V, ES) :-
@@ -4300,6 +4299,7 @@ san('test.pns').
 san('tmp.pns').
 san('pbst.pns').
 san('p1bst.pns').
+san('bst_poly.pns').
 
 spy(alias_stat).
 spy(in_as).

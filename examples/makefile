@@ -117,7 +117,7 @@ clean:
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		array.c array.h adtpp.errs
-	rm -if testio bst p1bst pbst isort
+	rm -if testio bst p1bst pbst isort bst_poly
 	rm -if tmp* a.out errs
 
 # :set noet ts=8
