@@ -79,14 +79,12 @@ bug2_list_bst(xs) = {
 % The polymorphic code has list and tree elements sharing and the list
 % cannot be abstract since the tree is updated (the elements are not
 % actually updated but the declarations are not precise enough to convey
-% that).
+% that). Also demonstrates renaming+with
 bug3_list_bst :: ints -> ibst.
-bug3_list_bst(xs) = {
-    % we need *tp to be type ibst, not bst(T) since its updated
-    *tp = (mt :: ibst);
-    list_bst_du(xs, (<=), !tp); % xs is abstract+looks like it shares with tp:(
-    return(*tp)
-}.
+renaming
+    bug3_list_bst = list_bst
+    with
+    list_bst_du = ilist_bst_du.
 
 % we rename the polymorphic code and use an instance of the types and
 % different sharing (the list abstract but not sharing with the tree)

@@ -1,11 +1,11 @@
-% test cases for implicit arguments/global vars
+% test cases for state vars
 
 main :: void -> void
     implicit rw io.
 main(c) = { !putchar(!getchar(void))
 }.
 
-% some global mutable variables/implicit arguments
+% some state vars
 !isdef :: ref(int).
 !undef :: ref(int).
 !itdef :: bool. % XXX not a ref, ill-typed use
