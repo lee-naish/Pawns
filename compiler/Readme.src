@@ -2,6 +2,9 @@ Pawns: a declarative/imperative language
 (Pointer Assignment Without Nasty Surprises)
 Version: VERSION
 Initial development by Lee Naish
+(basicaly a proof of concept for what I think are some neat language
+ideas that tackle a difficult problem in programming language design;
+definitely not a polished product)
 
 Pawns home page:
 http://people.eng.unimelb.edu.au/lee/src/pawns/
@@ -17,7 +20,10 @@ Also a paper on the sharing analysis done in the compiler (the src version
 here is less up to date than the paper and has several known bugs, meaning
 you can write dodgey code and the compiler won't complain as it should).
 
-The system is also not packaged well currently.
+The system is also not packaged well currently and my development machine
+(a laptop running Ubuntu) has rather old hardware and software. If you
+can't get it to work on your chosen platform I'll gladly return your money
+but I can't return your time:(
 
 It needs
 

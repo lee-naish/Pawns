@@ -9,7 +9,7 @@
 # Generate VERSION line with: date +'VERSION = 1.%y%m%d'
 # or in vim: :/^VERSION /!date +'VERSION = 1.\%y\%m\%d'
 # VERSION = 1.150821
-VERSION = 1.180223
+VERSION = 1.220419
 
 ADTPP=~/bin/adtpp
 
