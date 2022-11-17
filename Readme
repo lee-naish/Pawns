@@ -1,14 +1,14 @@
 Pawns: a declarative/imperative language
 (Pointer Assignment Without Nasty Surprises)
-Version: 1.180223
+Version: 1.221117
 Initial development by Lee Naish
 (basicaly a proof of concept for what I think are some neat language
 ideas that tackle a difficult problem in programming language design;
 definitely not a polished product)
 
-Pawns home page:
-http://people.eng.unimelb.edu.au/lee/src/pawns/
-(or tinyurl.com/pawns-lang)
+Pawns home page (moved in 2022):
+https://lee-naish.github.io/src/pawns/
+(tinyurl.com/pawns-lang points to old version)
 
 This has links to:
 
@@ -17,8 +17,12 @@ or presented particularly well, and the syntax is not what is supported -
 see note below).
 
 Also a paper on the sharing analysis done in the compiler (the src version
-here is less up to date than the paper and has several known bugs, meaning
-you can write dodgey code and the compiler won't complain as it should).
+here has some known bugs corrected in the paper, meaning you can write
+dodgey code and the compiler won't complain as it should).  See comments
+in the source code. However, it also has some enhancements to make sharing
+moreprecise, meaning you can write correct code that passes the compiler
+even though the analysis in the paper would result in error messages.
+The paper may be updated to reflect this at some point.
 
 The system is also not packaged well currently and my development machine
 (a laptop running Ubuntu) has rather old hardware and software. If you
