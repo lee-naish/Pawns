@@ -58,12 +58,15 @@ ADTPP=~/bin/adtpp
 %.h : %.adt
 	$(ADTPP) $<
 
-all: bst pbst bst_poly
+allbst: bst pbst bst_poly
 
 pawns.h: ../compiler/pawns.h
 	cp $< .
 
 builtin.h: ../compiler/builtin.h
+	cp $< .
+
+apply.h: ../compiler/apply.h
 	cp $< .
 
 # bst.pns imports from addlist.pns, io.pns so we put the following dependency
@@ -116,6 +119,7 @@ clean:
 		pbst.c testio.c wam.c wam.h \
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
+		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c \
 		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort bst_poly
 	rm -if tmp* a.out errs

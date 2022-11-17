@@ -1,4 +1,5 @@
 // prototype array support for pawns
+// Old - use array.pns now (though no inline pragma)
 #include "array_adt.h"
 #include <stdlib.h>
 #include <stdio.h>

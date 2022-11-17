@@ -5,11 +5,12 @@ test :: void -> void
     pre nosharing
     post nosharing.
 test(q) = {
-    % XXX old-style var declarationsa - will be error some time
-    (v0 :: f0);
-    (v2 :: f2);
-    (v2s :: list(f2));
-    (v3 :: f3);
+    % old-style var declarations
+    % re-do some of these tests with := rather than =
+    % (v0 :: f0);
+    % (v2 :: f2);
+    % (v2s :: list(f2));
+    % (v3 :: f3);
     % v0 = foo3 is a postcond violation because when v0 is called
     % we will assume no sharing is added but for foo3 there may be
     % v0 = foo3; % XX
@@ -32,8 +33,25 @@ test(q) = {
     return
 }.
 
+test0 :: void -> void
+    sharing test0(vd)=vd1
+    pre nosharing
+    post nosharing.
+test0(q) = {
+    xs1 = cons(true, nil);
+    cl = const(xs1);
+    ys = cl(true);
+    cases xs1 of {
+    case cons(*hp, *tp):
+        *!hp := false  %!xs1!ys % XX
+    };
+    zs1 = xs1;
+    zs = ys;
+    return
+}.
+
 test1 :: void -> void
-    sharing test(vd)=vd1
+    sharing test1(vd)=vd1
     pre nosharing
     post nosharing.
 test1(vvv) = {
@@ -63,12 +81,11 @@ test1(vvv) = {
 
 % XXX crazy if id and not aren't defined
 test2 :: void -> void
-    sharing test(vd)=vd1
+    sharing test2(vd)=vd1
     pre nosharing
     post nosharing.
 test2(vvv) = {
-    (zsp :: ref(list(bool))); % required for below
-    *zsp = nil;
+    *zsp = (nil :: list(bool)); % required for below
     *!zsp := cons(true, nil);
 
     *fp = id;       % polymorphic fn
@@ -78,8 +95,8 @@ test2(vvv) = {
     *!fp := not;    % XX smash with instance of original type
     assign(!fp, not); % XX same
     i1 = *fp;
-    b = i1(true);
-    n = i1(42)
+    b1 = i1(true);
+    n1 = i1(42)
 }.
 
 % example showing eta-conversion does not preserve equivalence wrt
@@ -92,14 +109,14 @@ test3(b) = {
     cases m of {
     case just(*bp):
         *!bp := false;  % !f % XX smashes f but not f1
-        return(pair(f(b), f1(b)))
+        return(t2(f(b), f1(b)))
     }
 }.
 
 % currently pre/post conds are not type checked until they are used -
 % maybe this should change
 test4 :: T1 -> T2 -> T1
-    sharing f0(b1, b2) = rb
+    sharing test4(b1, b2) = rb
     pre b1 = b2     % XX type error
     % pre nosharing
     post rb = b1.
@@ -168,13 +185,16 @@ foo4(b1) = {
 }.
 
 % note: returns fn
-foo5 :: maybe(bool) -> maybe(bool) -> mb
-    sharing foo5(b1,b2)=rb
+foo5bug :: maybe(bool) -> maybe(bool) -> mb
+    sharing foo5bug(b1,b2)=rb
     pre b2=b1
     post rb=b1.
-foo5(b1) =
+foo5bug(b1) =
 %    foo3(b1). % XXX violates postcond
     foo1(b1). % XXX violates precond
+% XX 'Error: incompatible precondition for '(return('V0'))
+% '  type is  '(maybe(bool) -> 
+% somewhat confusing error message with return('V0')
 
 zw0 :: f0 -> mbs -> mbs -> mbs
     sharing zw0(f,mbs1,mbs2)=rbs
@@ -199,7 +219,7 @@ zw0(f, mbs1, mbs2) = {
 
 
 map :: gp(T1, T2) -> list(T1) -> list(T2)
-    sharing map0(f,mbs1)=mbs
+    sharing map(f,mbs1)=mbs
     pre nosharing
     post nosharing.
 map(f, mbs) = {
@@ -225,7 +245,7 @@ map0(f, mbs) = {
 }.
 
 map1 :: g1 -> mbs -> mbs
-    sharing map0(f,mbs1)=mbs
+    sharing map1(f,mbs1)=mbs
     pre nosharing
     post mbs=mbs1.
 map1(f, mbs) = {

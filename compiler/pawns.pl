@@ -116,7 +116,7 @@ input_file(File) :-
     retractall(c_fn_def(_, _)),
     retractall(extern_fn(_)),
     retractall(func_arity(_, _)),
-    retractall(fdef_struct(_, _, _)),
+    retractall(fdef_struct(_, _, _, _)),
     retractall(nfdec_struct(_, _)),
     retractall(type_struct_c(_, _)),
     retractall(teqdef(_, _)),
@@ -578,7 +578,6 @@ es_as_fdef(T, fdef(PFH, PFB)) :-
 % We check types and other things here
 % XX more sanity/error checking, eg definedness
 fdef_fdef_struct(PFH, PFB, FDS) :-
-    % xxx(a),
     retractall(checking_pre_post),
     ( pfdef_fdef(PFH, PFB, FH, FB), fdef_fdef_struct1(FH, FB, FDS) ->
         functor(FH, _, Arity),
@@ -590,10 +589,9 @@ fdef_fdef_struct(PFH, PFB, FDS) :-
     ).
 
 % as above without error trap
-fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
+fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     FH =.. [FName|FHAs],
     writeln('    type analysis of '(FName)),
-    xxx(a),
     map(arg_fdefarg, FHAs, FAs),
     nfdec_struct(FName, TF),
     % we replace distinct type vars with distinct new ground
@@ -614,14 +612,13 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
     TPs = [TFR|TFArgs],
     % result type is not checked by add_typed_anns since it
     % doesn't know what is returned; its checked in add_last_anns
-    % xxx(FName),
     add_typed_anns(FB, S1, VTm1, VTm),
     % check implict wo vars are instantiated and have types
     % compatible with declarations (like := type check)
     ( TF = arrow(_, _, _, _, _, _, _, _, _, _, WOIs) ->
         globals_type_assoc(WOIs, VTmWO),
-        (   gen_assoc(WOV, VTmWO, WOTl), % generate & test
-            ( get_assoc(WOV, VTm, WOTr) ->
+        (   gen_assoc(WOV, VTmWO, WOTl-_DF), % generate & test
+            ( get_assoc(WOV, VTm, WOTr-def) ->
                 copy_term(WOTr, WOTrc),
                 deannotate_type(WOTrc, WOTr1),
                 % subsumes_chk is the name in older versions
@@ -649,15 +646,13 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat)) :-
     % XXX NQR if we have a local var the same name as a state vars
     % (should warn about that at least).
     findall(SV, mutable_global(SV), AllVs),
-    % need to include mutable args also!
-    type_to_banged(TF, BVs),
-    append(BVs, AllVs, AllVs1),
+    % need to include mutable args also! XXX actually all args
+    % type_to_banged(TF, BVs),
+    append(FHAs, AllVs, AllVs1),
     sort(AllVs1, Vs1),
-    % writeln(vs1(Vs1)),
     add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs),
     smash_type_vars(VTm).  % XX clobber any local type vars just in case...
     % writeq(Stat), nl.
-    % XX should put list of type vars in fdef_struct?
 
 % from type of defn, extract banged arguments. They are typically in the
 % innermost arrow as the outer arrows just create closures (but not if a
@@ -685,9 +680,9 @@ globals_type_assoc_union(Is, VTm0, VTm) :-
     findall(V-T, (member(V, Is), nfdec_struct(V, T)), VTs),
     map0_acc(unpair_lookup_assoc, VTs, VTm0, VTm).
 
-% call lookup_assoc given var-type pair
+% call lookup_assoc given var-type pair; add def flag
 unpair_lookup_assoc(V-T, VTm0, VTm) :-
-    lookup_assoc(V, VTm0, T, VTm).
+    lookup_assoc(V, VTm0, T-def, VTm).
 
 % given type, strip off outer Arity arrows to give type of each arg and
 % return type of fn
@@ -817,9 +812,14 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
     % so necessary to have this.  Perhaps we should just put up with
     % more verbose postconds for the sake of expressive power.
     type_var_self_share(TR, R, RSelfs),
-    append(RSelfs, SSS2, SSS3),
+    % XXX if postconditions don't implicitly include sharing from precondition
+    % the next line is appropriate. This potentially allows a bit more
+    % precision at the cost of more verbose postconditions, though only
+    % when we smash data structure to reduce sharing, which is uncommon.
+    % append(RSelfs, SSS2, SSS3),
+    append(RSelfs, PreSS, SSS3),
     sort(SSS3, SSS4),
-    % SSS4 = SSS2, % don't add self share for result
+    % SSS4 = SSS2, % appropriate if we don't want self share for result
     cond_share(VTm1, Post, SSS4, PostSS1),
     % we delete all share pairs involving anything but an arg var,
     % the result var or abstract
@@ -827,6 +827,7 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
 
 % given formal args for pre/post corresponding to closure args,
 % compute list of cla(N) which they will be renamed to
+% XX no longer used?
 cla_renaming([], _, []).
 cla_renaming([_|FCLAs], N, [cla(N)|CLAs]) :-
     N1 is N + 1,
@@ -837,8 +838,15 @@ cla_renaming([_|FCLAs], N, [cla(N)|CLAs]) :-
 % sufficient to check pre/post), so we smash type vars with ref(void).
 % Generally we have multiple instances of the type for a fn and for each
 % one we instantiate it further and process the pre/post for the
-% instance.  YYY Could cache things more and/or avoid some recomputation in
-% other ways.
+% instance (YYY Could cache things more and/or avoid some recomputation in
+% other ways).
+% XXX This caused bogus precondition violations if we have a
+% function that returns something with a polymorphic type, eg
+% l = return_nil(void); accept_list_of_int(l)
+% results in l sharing with abstract(list(ref(void))) and the
+% precondition of accept_list_of_int only expects sharing with
+% abstract(list(ref(int))). Currently fixed (hopefully) by ignoring sharing
+% with abstract(void) in alias_stat_app. Might want to rethink this.
 smash_type_vars(T) :-
     ( var(T) ->
         T = ref(void)
@@ -882,7 +890,7 @@ cond_share(VTm0, PS, SS0, SS) :-
         ),
         add_typed_anns(S, S1, VTm0, _VTm),
         retractall(checking_pre_post),
-        alias_stat(S1, SS0, SS)
+        alias_stat(S1, VTm0, SS0, SS)
     ).
 
 % flag set when we do analysis of pre/post conditions to allow
@@ -976,13 +984,13 @@ data_cons(cons(_,_)).
 data_cons(nothing).
 data_cons(just(_)).
 data_cons(t2(_,_)).
+% data_cons(pair(_,_)). % pair is type name, t2 is now constructor
 data_cons('_type_param'(_)). % not needed?
 data_cons('_cl0'(_,_)).
 data_cons('_cl1'(_,_,_)).
 data_cons('_cl2'(_,_,_,_)).
 data_cons('_cl3'(_,_,_,_,_)).
 data_cons('_cl4'(_,_,_,_,_,_)). % XXX add more
-data_cons(pair(_,_)).
 % data_cons(array_(_)). % XX hack for sharing analysis
 
 % disjunction of data constructors with types as arg ->
@@ -1203,7 +1211,9 @@ pfdef_fdef(CFH, CFB, FH, FB) :-
     ( pstat_stat(CFB, FB) ->
         true
     ;
-        writeln('ERROR: dodgey definition:'(CFH = CFB))
+        % XXX handle such errors better
+        writeln('ERROR: dodgey definition:'(CFH = CFB)),
+        pstat_stat(void, FB) % -> spurious errors but better than loop
     ).
 
 % statement -> abstract core syntax
@@ -1471,6 +1481,10 @@ to_var(PE, V, ES) :-
     % need to put * before defined functions otherwise indirection gets
     % treated as a partial application to multiplication (if we want the
     % latter we have to have another multiply fn)
+    ; PE = (**PE1) ->
+        to_var(*(*PE1), V, ES)
+    ; PE = (***PE1) ->
+        to_var(*(*(*PE1)), V, ES)
     ; PE = (*PE1) ->
         % *e -> v + v = *ev
         fresh_var(V),
@@ -1757,9 +1771,6 @@ add_last_anns(C0-Ann0, C-Ann, LSF, UVs0, UVs, IBVs0, IBVs) :-
             deannotate_type(Tlastc, Tlast1),
             % subsumes_chk is the name in older versions
             ( subsumes_chk(Tlast1, TFn) ->
-                % writeln('   XXX'(Tlast1)),
-                % writeln('   XYX'(Tlast)),
-                % writeln('   XXY'(TFn)),
                 Tlast1 = TFn,
                 check_ho_types(Ann0, return(RetVar), TFn, Tlastc)
             ;
@@ -1823,8 +1834,14 @@ its(PS) :-
     assoc_to_list(VTm, VTs),
     writeln(VTs).
 
-% take stat with annotations and var-type map, return same stat with
-% extra typed annotations + new VT map
+% take stat with annotations and var-type+defined map, return same stat with
+% extra typed annotations + new VT map. We need to keep types of all
+% vars (for later sharing analysis) so we give an error message if a var
+% is defined with different types, even in different case branches, and
+% add a defined flag to the map to say if its defined in all possible
+% paths to the current program point (eg, if its defined in all possible
+% case branches, not just some).
+% 
 % We need the types of the LHS for each assignment/equality and the target
 % of cases (and the overall type for var_stat) for sharing analyis.  We
 % also need the types of (arguments of) the RHS explicitly, so we can
@@ -1850,7 +1867,14 @@ add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm) :-
     Ann = Ann0.
 add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm) :-
     C0 = cases(V, Cases0),
-    lookup_assoc(V, VTm0, TV, VTm1),
+    lookup_old_assoc(V, VTm0, TV, VTm1),
+    % we want to keep track of types of all vars to use for type
+    % folding in sharing analysis but also want vars defined in only
+    % some branches of a case to be undefined in subsequent code. To do
+    % this we have a flag with everything in the map to say its the var
+    % is definitely defined (for all execution paths), keep all vars in
+    % the map (definitely defined or not), and don't allow the same var
+    % to be defined in different case branches with different types.
     % map_acc(add_typed_anns_case(TV), Cases0, Cases, VTm1, VTm),
     map_add_typed_anns_case(TV, Cases0, Cases, VTm1, VTms),
     % XX would be more efficient if we just returned extra elements of
@@ -1891,20 +1915,21 @@ add_typed_anns(assign(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
     add_typed_anns_veq(assign, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
 add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
     C = var_stat(V),
-    % we allow var::type "statements" and treat them as declarations
-    % they must come before the var is defined
-    % XXX delete this now?
-    ( member(typed(TV), Ann0) ->
-        ( get_assoc(V, VTm0, _) ->
+    % we once allow var::type "statements" and treated them as declarations
+    % before the var is defined
+    % Now we allow var = (expr::type) instead
+    % XXX so delete this now???
+    ( fail, member(typed(TV), Ann0) ->
+        ( get_assoc(V, VTm-_DF, _) ->
             writeln('Error: redeclaration of type for '(V)),
             write_src(Ann0)
         ;
             true
         ),
-        put_assoc(V, VTm0, TV, VTm),
+        put_assoc(V, VTm0, TV-def, VTm),
         Ann = Ann0
     ;
-        lookup_assoc(V, VTm0, TV, VTm),
+        lookup_assoc(V, VTm0, TV-def, VTm),
         % we add typed_rhs in case this is the last statement and
         % its converted to returnvar = V
         Ann = [typed(TV), typed_rhs(TV)|Ann0]
@@ -1965,7 +1990,6 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         % checking below
         copy_term(TCurrsc1, TCurrsc2),
         copy_term(TF-TFR-TFArgs, TFc1-TFRc1-TFArgsc1),
-        % xxx(a),
         unify_with_occurs_check(TCurrsc1, TFArgsc1)
     ->
         % check that !var type hasn't been instantiated
@@ -1982,11 +2006,12 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         smash_type_vars(TFArgs) % proceed with some default type
         ,writeln(TFArgs)
     ),
-    ( get_assoc(Vl, VTm1, TVl) -> 
+    ( get_assoc(Vl, VTm1, TVl-_DF) -> 
         % we check if its a pre/postcondition using dynamic flag
         ( checking_pre_post ->
             true % allow redefinition in pre+post conditions
         ;
+            % could check DF and add "possibly" to error message
             writeln('Error: variable redefined '(Vl :: TVl)),
             write_src(Ann0)
         ),
@@ -2008,18 +2033,16 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         VTm2 = VTm1
     ;
         TVl = Tr,
-        put_assoc(Vl, VTm1, TVl, VTm2)
+        put_assoc(Vl, VTm1, TVl-def, VTm2)
         % XXX Singleton variable in branch: TFc,Trc,TFArgsc ?????
         % Trc = Tr,
         % TFc = TF,
         % TFArgsc = TFArgs
     ),
-    % xxx(args),
     map(check_ho_types(Ann0, Vl-F-Args), TFArgs, TCurrsc),
     % we add annotations for both the fn app and dc cases - could merge?
     % typed_dc() no longer used...
     % Ann = [typed(TVl), typed_rhs(TFc), typed_dc(TCurrsc)|Ann0].
-    % writeln(TVl-TFc1-TFc-TF),
     Ann1 = [typed(TVl), typed_rhs(TFc1)|Ann0],
     % if we are applying a fn, add bangs for rw implicit args,
     % check ro,rw args defined, define wo args, check fn is banged
@@ -2073,20 +2096,20 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
     % type of Vr should already be known (special case for abstract)
     % if its known and not ref(_) but TVr=ref(_) its an error
     ( Vr = abstract ->
-        ( get_assoc(Vl, VTm0, TVl3) ->
+        ( get_assoc(Vl, VTm0, TVl3-_) ->
             VTm1a = VTm0
         ;
             % from default processing of arrow type we sometimes get
             % extra v=abstract eqns where v is only an arg for inner
             % arrows; here we just set the type to void
-            put_assoc(Vl, VTm0, void, VTm1a)
+            put_assoc(Vl, VTm0, void-def, VTm1a)
         ),
         % lookup_old_assoc(Vl, VTm0, TVl3, VTm1a),
         copy_term(foo(Tl, TVl, TVl3), foo(Tlc, TVlc, TVl3c)),
         TVl3c = TVlc, % instantiates Tlc
         smash_type_vars(Tlc), % just in case...?
         VrA = abstract(Tlc),
-        put_assoc(VrA, VTm1a, Tlc, VTm1)
+        put_assoc(VrA, VTm1a, Tl-def, VTm1)
     ;
         VrA = Vr,
         lookup_old_assoc(Vr, VTm0, TVr0, VTm1)
@@ -2104,15 +2127,15 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
     % if type of Vl is declared here (via ::) we check its
     % an instance of VrA (and pre/post are compat)
     % XXX should treat this as an error now
-    ( get_assoc(Vl, VTm1, TVl0) -> 
+    ( get_assoc(Vl, VTm1, TVl0-_) -> 
         % we check if its a pre/postcondition using dynamic flag
         ( AEQ = eq, \+ checking_pre_post ->
+            % could check DF and add "possibly"
             writeln('Error: variable redefined '(Vl :: TVl0)),
             write_src(Ann0)
         ;
             true
         ),
-% writeln(lhs_var_defined(Vl,TVl0)),
         ( TVl = TVl0 ->
             true
         ;
@@ -2125,7 +2148,6 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         % subsumes_chk is the name in older versions
         ( subsumes_chk(Tr1, Tl) ->
             Tr1 = Tl,
-            % writeln(' ZZZ'(Tl, Tr)),
             check_ho_types(Ann0, Vl=Vr, Tl, Trc)
         ;
             writeln('Error: type error in var equality/assignment:'(((Vl::TVl), (Vr::TVr)))),
@@ -2140,7 +2162,6 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         % subsumes_chk is the name in older versions
         ( subsumes_chk(Tr1, TVl0) ->
             Tr1 = Tl,
-            % writeln(' ZZZ'(Tl, Tr)),
             check_ho_types(Ann0, Vl=Vr, TVl0, Trc)
         ;
             writeln('Error: type error in var equality/assignment:'(((Vl::TVl), (Vr::TVr)))),
@@ -2153,7 +2174,7 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
             write_src(Ann0)
             % XX do something to help carry on here rather than fail?
         ),
-        put_assoc(Vl, VTm1, TVl0, VTm),
+        put_assoc(Vl, VTm1, TVl0-def, VTm),
         ( Trc == Tr ->
             Casts = []
         ;
@@ -2167,7 +2188,7 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
             true
         ),
         Tl = Tr,
-        put_assoc(Vl, VTm1, TVl, VTm),
+        put_assoc(Vl, VTm1, TVl-def, VTm),
         Trc = Tr,
         Casts = []
     ),
@@ -2182,6 +2203,8 @@ add_typed_anns_case(TV, case_dc(DC, Arity, PArgs, S0),
     map('X,ref(X)', TDCArgs, TRDCArgs),
     % PArgs is (deref) pattern vars
     % TRDCArgs is expected types of above from DC with implicit refs
+    % XXX should use get_assoc etc so we can check for redefinition of vars
+    % maybe have new_lookup_assoc and flip_new_lookup_assoc preds
     map_acc(flip_lookup_assoc, PArgs, TCurrs, VTm0, VTm1),
     % map(fst, TPCurrs, TCurrs), % strip Pty
     % TCurrs is currently known types of above (vars if unknown - should
@@ -2200,30 +2223,40 @@ add_typed_anns_case(TV, case_dc(DC, Arity, PArgs, S0),
     add_typed_anns(S0, S, VTm1, VTm).
 
 % take list of VTs from cases and get intersection
+% YYY rename: now returns the union, but if you ignore elements with the
+% def flag = undef then its the intersection, so effectively the
+% resulting map represents both the union (which we need for sharing
+% analyis later) and the intersection (which we need for var undefined
+% messages).  Should rename some variables also - VT -> VTD?
 % XX must be a more efficient way (should be in assoc library?)...
 % Asymetry wrt cases so some warnings will be missed?
-vt_intersection([VTm0|VTms0], VTm) :-
-    assoc_to_list(VTm0, VTs),
-    empty_assoc(VTm1),
-    map0_acc(add_assoc_if_in_all(VTms0), VTs, VTm1, VTm).
+vt_intersection(VTms0, VTm) :-
+    map(assoc_to_list, VTms0, VTss),
+    append(VTss, VTs),
+    sort(VTs, VTs1), % remove duplicates
+    empty_assoc(VTme),
+    map0_acc(add_assoc_if_in_all(VTms0), VTs1, VTme, VTm).
 
-% check V-T is in each of VTms0 and if so, add it to VTm0
-add_assoc_if_in_all(VTms0, V-T, VTm0, VTm) :-
-    ( map0(check_get_assoc(V, T), VTms0) ->
-        put_assoc(V, VTm0, T, VTm)
+% check V-T is def in each of VTms0 and if so, add it to VTm0 with def flag,
+% otherwise add if with DF=undef
+add_assoc_if_in_all(VTms0, V - (T-DF), VTm0, VTm) :-
+    ( DF = def, map0(check_get_assoc(V, T), VTms0) ->
+        put_assoc(V, VTm0, T-def, VTm)
     ;
-        VTm = VTm0
+        put_assoc(V, VTm0, T-undef, VTm)
     ).
 
-% check V has type T in VTs (if it has another type, issue a warning)
+% check V has type T in VTs (if it has another type, issue error) and is
+% definitely defined
 check_get_assoc(V, T, VTm) :-
-    (get_assoc(V, VTm, T1) ->
+    (get_assoc(V, VTm, T1-DF) ->
         (T1 == T ->
             true
         ;
-            writeln('Warning: same var name with different types: '(V)),
+            writeln('Error: same var name with different types: '(V)),
             fail
-        )
+        ),
+        DF = def
     ;
         fail
     ).
@@ -2288,9 +2321,9 @@ unify_first_arrows(T0, T) :-
 
 'X,ref(X)'(X,ref(X)).
 
-% lookup_assoc with last two args flipped
+% lookup_assoc with last two args flipped, adds def flag
 flip_lookup_assoc(V, TV, VTm0, VTm) :-
-    lookup_assoc(V, VTm0, TV, VTm).
+    lookup_assoc(V, VTm0, TV-def, VTm).
 
 % lookup_old_assoc with last two args flipped
 flip_lookup_old_assoc(V, TV, VTm0, VTm) :-
@@ -2341,13 +2374,14 @@ dc_type(DC, Arity, TDC, TArgs) :-
 % code for sharing analysis, where ref nodes are special.  We use
 % :- type sum --->
 %     sum(type_name, list(prod)) ; % not used for refs
-%     ref(type_name, sum) ; % like sum(type_name, [prod('_ref', 1, [sum])]) above
-%     ref_anc(int). % like sum(??, [prod('_ref', 1, sum_anc(int))]) above
+%     sum_ref(type_name, sum) ; % like sum(type_name, [prod('_ref', 1, [sum])]) above
+%     sum_ref_anc(type_name, int). % like sum(type_name, [prod('_ref', 1, sum_anc(int))]) above
+%     - added type_name for new type path code
 % 
-% Note also that at the top level we can't have ref_anc(i) (i>=2 generally
+% Note also that at the top level we can't have sum_ref_anc(i) (i>=2 generally
 % so these nodes must be lower in the tree).  This isn't encoded in the
 % type.  Also not encoded is the constraint that "sum" node children of
-% types defined with sum/2 must be defined by either ref or ref_anc nodes
+% types defined with sum/2 must be defined by either ref or sum_ref_anc nodes
 % (the arguments of "normal" data constructors must be refs; we
 % also allow refs to refs to refs etc, which doesn't correspond so
 % directly to a traditional ADT).
@@ -2360,19 +2394,19 @@ dc_type(DC, Arity, TDC, TArgs) :-
 % type_struct(fs,
 %     sum(fs, [prod(f0, 0, []), prod(f1, 0, []), prod(f2, 0, [])])).
 % type_struct(term, sum(term,
-%     [prod(var, 1, [ref_anc(2)]),
-%      prod(nv, 2, [ref(ref(fs), sum(fs,
+%     [prod(var, 1, [sum_ref_anc(2)]),
+%      prod(nv, 2, [sum_ref(ref(fs), sum(fs,
 %         [prod(f0, 0, []), prod(f1, 0, []), prod(f2, 0, [])])),
-%         ref(ref(terms), sum(terms,
-%             [prod(nil, 0, []), prod(cons, 2, [ref_anc(4), ref_anc(2)])]))])])).
+%         sum_ref(ref(terms), sum(terms,
+%             [prod(nil, 0, []), prod(cons, 2, [sum_ref_anc(4), sum_ref_anc(2)])]))])])).
 % type_struct(terms, sum(terms,
 %     [prod(nil, 0, []),
-%      prod(cons, 2, [ref(ref(term), sum(term,
-%         [prod(var, 1, [ref_anc(2)]),
-%          prod(nv, 2, [ref(ref(fs), sum(fs,
+%      prod(cons, 2, [sum_ref(ref(term), sum(term,
+%         [prod(var, 1, [sum_ref_anc(2)]),
+%          prod(nv, 2, [sum_ref(ref(fs), sum(fs,
 %             [prod(f0, 0, []), prod(f1, 0, []), prod(f2, 0, [])])),
-%             ref_anc(4)])])),
-%         ref_anc(2)])])).
+%             sum_ref_anc(4)])])),
+%         sum_ref_anc(2)])])).
 %
 % Note that the representation for term is not the same as the
 % nested sum node which represents term inside the representation of
@@ -2430,28 +2464,31 @@ type_sum(TDefs, Ancs, TName, CTs, Sum) :-
     ( TName = arrow(_, _, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs) -> % not needed?
         Sum = TName
     ; TName = ref(TName1) ->
-        type_ref_sum(TDefs, [TName|Ancs], TName1, Sum)
+        % type_ref_sum(TDefs, [TName|Ancs], TName1, Sum)
+        type_ref_sum(TDefs, Ancs, TName1, Sum)
     ;
         Sum = sum(TName, Prods),
         map(cons_types_prod(TDefs, [TName|Ancs]), CTs, Prods)
     ).
 
 cons_types_prod(TDefs, Ancs, dcons(DC, Ts), prod(DC, Arity, Sums)) :-
-    Ancs = [TName|_],
     length(Ts, Arity),
-    map(type_ref_sum(TDefs, [ref(TName)|Ancs]), Ts, Sums).
+    map(type_ref_sum(TDefs, Ancs), Ts, Sums).
 
 type_ref_sum(TDefs, Ancs, TName, Sum) :-
-    ( nth1(N, Ancs, TName) ->
-        Sum = ref_anc(N)
+    ( nth1(N, Ancs, ref(TName)) -> % *first* check for ref(TName) ancestor
+        Sum = sum_anc(ref(TName), N)
+    ; nth1(N, Ancs, TName) -> % then check for TName ancestor
+        N1 is N + 1,
+        Sum = sum_ref_anc(ref(TName), N1)
     ;
-        Sum = ref(ref(TName), Sum1),
+        Sum = sum_ref(ref(TName), Sum1),
         % member(tdef(TName, CTs), TDefs),
         ( TName = arrow(_, _, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs) ->
             Sum1 = TName
         ;
             tdef(TName, CTs),
-            type_sum(TDefs, Ancs, TName, CTs, Sum1)
+            type_sum(TDefs, [ref(TName)|Ancs], TName, CTs, Sum1)
         )
     ).
 
@@ -2483,20 +2520,30 @@ var_number(0).
 % for it when RHS of := is traversed and list of var paths which are aliases
 % for LVP, add sharing pairs between extended LVP paths and similarly
 % extended paths for the aliases
-add_sharing_for_lhs_aliases(_LVP, [], _AVPs, SS, SS).
-add_sharing_for_lhs_aliases(LVP, [ELVP|ELVPs], AVPs, SS0, SS) :-
+% Type also passed in for path folding (probably should pass lvar and
+% its path as separate args)
+% XXXXX problem: top level type for aliased vars is unknown and could be
+% different for different members of AVPs, eg, we could have a
+% list(bool) var and a maybe(list(bool)) var both aliased to LHS. For
+% type folding we currently need the top level type....
+add_sharing_for_lhs_aliases(_T, _VTm, _LVP, [], _AVPs, SS, SS).
+add_sharing_for_lhs_aliases(T, VTm, LVP, [ELVP|ELVPs], AVPs, SS0, SS) :-
     app_var_path(LVP, RestVPC, ELVP),
-    add_sharing_for_lhs_aliases1(ELVP, RestVPC, AVPs, SS0, SS1),
-    add_sharing_for_lhs_aliases(LVP, ELVPs, AVPs, SS1, SS).
+    add_sharing_for_lhs_aliases1(T, VTm, ELVP, RestVPC, AVPs, SS0, SS1),
+    add_sharing_for_lhs_aliases(T, VTm, LVP, ELVPs, AVPs, SS1, SS).
 
 % as above for single "extension" of LVP path
-add_sharing_for_lhs_aliases1(_ELVP, _VPC, [], SS, SS).
-add_sharing_for_lhs_aliases1(ELVP, VPC, [AVP|AVPs], SS0, SS) :-
-    app_var_path(AVP, VPC, EAVP),
-    mk_alias_pair(ELVP, EAVP, S),
+add_sharing_for_lhs_aliases1(_T, _VTm, _ELVP, _VPC, [], SS, SS).
+add_sharing_for_lhs_aliases1(T, VTm, ELVP, VPC, [AVP|AVPs], SS0, SS) :-
+    app_var_path(AVP, VPC, vp(V, EAP)),
+    % XXX may need to fold path...
+    get_assoc(V, VTm, VT-_),
+    fold_type_path(VT, EAP, EAPF),
+    EAVPF = vp(V, EAPF),
+    mk_alias_pair(ELVP, EAVPF, S),
     mk_alias_pair(ELVP, ELVP, S1),
-    mk_alias_pair(EAVP, EAVP, S2),
-    add_sharing_for_lhs_aliases1(ELVP, VPC, AVPs, [S1,S2,S|SS0], SS).
+    mk_alias_pair(EAVPF, EAVPF, S2),
+    add_sharing_for_lhs_aliases1(T, VTm, ELVP, VPC, AVPs, [S1,S2,S|SS0], SS).
 
 % Get subset of (precond) sharing which has a path with var from list
 % (of DU args) - this needs to be added to postcondition
@@ -2572,9 +2619,17 @@ check_banged(BVs, MVs, SS, Ann, Stat) :-
 
 % as above, specialised for single modified var on LHS of assignment
 % XX probably should bang LV even if its not used (or give warning)
+% XXXX should be more permissive here - we pass LV (plus things that
+% share with its updated component) to check_banged1, but check_banged1
+% will complain if other (not updated) components of LV share with
+% abstract because check_banged1 doesn't distinguish LV from other
+% updated vars and doesn't know about components.
+% Could avoid returning LV from should_bang_lhs and to extra checking
+% of LV here or rewrite check_banged1 so it uses variable components,
+% not just variables.
 check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
-    (   setof(MV, should_bang_lhs(LV, SS, MV), Vs1) -> % Note setof can fail
-        check_banged1(BVs, Vs1, SS, Ann, Stat)
+    (   setof(MVP, should_bang_lhs(LV, SS, MVP), VPs1) -> % Note setof can fail
+        check_banged_lhs1(BVs, VPs1, SS, Ann, Stat)
     ;
         true
     ).
@@ -2597,6 +2652,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         % note we allow update of dead vars which share with abstract -
         % this allows greater flexibility in coding and there are
         % reasonable uses of it.  note abstract() gets ignored here
+        % XXX really? seems a bit suspect??
         ( member(used_later(ULVs), Ann) ->
             member(V, ULVs)
         ;
@@ -2605,7 +2661,62 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         % we check for du of abstract vars, even if they are banged
         % note we need to check for sharing with abstract, not
         % V=abstract(_)
-        ( aliases(SS, vp(V, _), vp(abstract(_), _)) ->
+        % XXX VVP \= vpe ??? We avoid empty paths now anyway
+        ( aliases(SS, vp(V, VVP), vp(abstract(_AT), _AVP)), VVP \= vpe ->
+            write('Error: abstract variable '),
+            print(V),
+            write(' may be modified by '),
+            print(Stat),
+            nl,
+            write_src(Ann),
+            fail
+        ;
+            true
+        ),
+        % ignore banged vars
+        \+ member(V, BVs),
+        % must be an error...
+        write('Error: variable '),
+        write(V),
+        write(' might be modified by '),
+        print(Stat),
+        nl,
+        write_src(Ann),
+        fail
+    ;
+        true
+    ).
+
+% like check_banged1 but we pass in modified variable paths, not variables
+check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
+    % print(check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat)), nl,
+    % iterate over all members of AMVs
+    (   member(VP, AMVPs),
+        VP = vp(V, _VVP),
+        % skip error messages about V* (introduced) vars
+        (( atomic(V), % in case its abstract(_)
+            name(V, VS),
+            name('V', VCodes),
+            append(VCodes, _, VS)
+        ) ->
+            fail
+        ;
+            true
+        ),
+        % ignore dead vars (use -> in case used_later() is missing)
+        % note we allow update of dead vars which share with abstract -
+        % this allows greater flexibility in coding and there are
+        % reasonable uses of it.  note abstract() gets ignored here
+        % XXX really? seems a bit suspect??
+        ( member(used_later(ULVs), Ann) ->
+            member(V, ULVs)
+        ;
+            true
+        ),
+        % we check for du of abstract vars, even if they are banged
+        % note we need to check for sharing with abstract, not
+        % V=abstract(_)
+        ( aliases(SS, VP, vp(abstract(_AT), _AVP)) ->
             write('Error: abstract variable '),
             print(V),
             write(' may be modified by '),
@@ -2631,7 +2742,8 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
     ).
 
 % given list of varpaths which may be modified, and sharing set,
-% (nondeterministically) return var path which may be modified
+% (nondeterministically) return var which may be modified
+% (could return var paths for more precision)
 should_bang(MVs, SS, MV) :-
     member(vp(MV1, _P3), MVs),
     (   MV = MV1
@@ -2642,17 +2754,11 @@ should_bang(MVs, SS, MV) :-
     ).
 
 % as above, specialised for single modified var on LHS of assignment
-should_bang_lhs(vp(LMV, LVP), SS, MV) :-
-    vpc_length(LVP, LN),
-    (   MV = LMV
+should_bang_lhs(LMVP, SS, MVP) :-
+    (
+        member(s(LMVP, MVP), SS)
     ;
-        member(s(vp(LMV, VP1), vp(MV, _)), SS),
-        vpc_length(VP1, N1),
-        N1 =< LN
-    ;
-        member(s(vp(MV, _), vp(LMV, VP2)), SS),
-        vpc_length(VP2, N2),
-        N2 =< LN
+        member(s(MVP, LMVP), SS)
     ).
 
 % % Given two lists of var paths and alias set, see if there is any
@@ -2715,8 +2821,10 @@ aliases(SS, VP1, VP2) :-
 % Here we check if two var paths have two components at the end which
 % are incompatible (second last components are not ref and not the same)
 incompatible_dc_path(VP1, VP2) :-
-    app_var_path(_, vpc(C1, A1, N1, vpc('_ref', 1, 1, vpe)), VP1),
-    app_var_path(_, vpc(C2, A2, N2, vpc('_ref', 1, 1, vpe)), VP2),
+    % app_var_path(_, vpc(C1, A1, N1, vpc('_ref', 1, 1, vpe)), VP1),
+    % app_var_path(_, vpc(C2, A2, N2, vpc('_ref', 1, 1, vpe)), VP2),
+    app_var_path(_, vpc(C1, A1, N1,  vpe), VP1),
+    app_var_path(_, vpc(C2, A2, N2,  vpe), VP2),
     \+ (C1 = '_ref', A1 = 1, N1 = 1),
     \+ (C2 = '_ref', A2 = 1, N2 = 1),
     \+ (C1 = C2, A1 = A2, N1 = N2).
@@ -2760,9 +2868,11 @@ app_var_path(vp(V, VPC1), VPC2, vp(V, VPC)) :-
     app_vpc(VPC1, VPC2, VPC).
 
 % as above for constructor part
-app_vpc(vpe, VPC, VPC).
+% base case put last for fold_type_path (uses this backwards and
+% best return longer first arg earlier; no longer needed?)
 app_vpc(vpc(C, A, N, VPC1), VPC2, vpc(C, A, N, VPC)) :-
     app_vpc(VPC1, VPC2, VPC).
+app_vpc(vpe, VPC, VPC).
 
 % drop last N things in var path
 var_path_drop_last(N, vp(V, VPC0), vp(V, VPC)) :-
@@ -2817,7 +2927,7 @@ mk_alias_pair(VP1, VP2, S) :-
 % type_paths(T, Ps) :-
 %     type_struct(T, TS),
 %     type_paths_sum(vpe, TS, Ps1),
-%     sort(Ps1, Ps). % remove any dups from multiple ref_anc()
+%     sort(Ps1, Ps). % remove any dups from multiple sum_ref_anc()
 % 
 % % as above for sum type, given path so far to prefix
 % type_paths_sum(P0, sum(_, Prod), Ps) :-
@@ -2825,7 +2935,7 @@ mk_alias_pair(VP1, VP2, S) :-
 % type_paths_sum(P0, ref(_, Sum), [P|Ps]) :-
 %     app_vpc(P0, vpc(ref, 1, 1, vpe), P),
 %     type_paths_prod(P0, prod(ref, 1, [Sum]), [], Ps).
-% type_paths_sum(P0, ref_anc(N), [P]) :-
+% type_paths_sum(P0, sum_ref_anc(N), [P]) :-
 %     N1 is N - 1,
 %     vpc_drop_last(N1, P0, P).
 % type_paths_sum(P0, arrow(_, _TypeR, _, _, _, _, _, _, _ROIs, _RWIs,
@@ -2863,9 +2973,36 @@ mk_alias_pair(VP1, VP2, S) :-
 %     append(DCSPs, Ps0, Ps).
 
 % return var self-sharing corresponding to a type (not sorted)
+% We generate all var paths+info for the type then look for pairs of
+% paths that have compatible info - same type plus DC,Argnum the same or
+% one is _ref
 type_var_self_share(T, V, Ss) :-
-    type_var_paths(T, V, VPs),
-    map(self_alias, VPs, Ss).
+    type_paths_info(T, PIs),
+    ( PIs = [] ->
+        Ss = []
+    ;
+        setof(P1-P2, path_info_compat_pairs(PIs, P1, P2), PPs),
+        map(ppair_alias(V), PPs, Ss)
+    ).
+
+% from list of var paths plus info, return compatible pairs
+path_info_compat_pairs(PIs, P1, P2) :-
+    % use append to split list so we don't return everything twice
+    append(_, [P1-pinfo(DC1, A1, T)|PIs1], PIs),
+    (   P2 = P1 % return self-share paths
+    ;
+        member(P2-pinfo(DC2, A2, T), PIs1), % type of later path is the same
+        (   DC2 = DC1, A2 = A1          % same DC,Argnum
+        ;
+            DC1 = '_ref', DC2 \= '_ref' % one DC is _ref
+        ;
+            DC2 = '_ref', DC1 \= '_ref' % one DC is _ref
+        )
+    ).
+
+% given var and pair of paths, return self_share
+ppair_alias(V, P1-P2, S) :-
+    mk_alias_pair(vp(V, P1), vp(V, P2), S).
 
 % return all var paths which may share corresponding to a type
 type_var_paths(T, V, VPs) :-
@@ -2876,86 +3013,298 @@ mk_vp(X,P,vp(X,P)).
 
 % return all paths which may share corresponding to a type
 % YY might be worth caching this
+% New version without extra refs in path and without empty paths
+% See comments in older version for now
 type_paths(T, Ps) :-
-    ( setof(TP, P^trunc_type_path(T, P, TP), Ps) ->
+    type_struct(T, TS),
+    ( setof(P, PInfo^type_path_sum(TS, [], P, vpef, PInfo), Ps) ->
         true
     ;
         Ps = []
     ).
 
-% for type T, P is a path which may be too long (end corresponding to a
-% ref_anc() node) and TP is the corresponding truncated path.  Can
-% generate all TP values given just T (not all P values returned in this
-% mode); may have duplicate solutions.
-trunc_type_path(T, P, TP) :-
+% As above but returns path info with each path
+% YY might be worth caching this
+type_paths_info(T, Ps) :-
     type_struct(T, TS),
-    trunc_type_path_sum(TS, P, N),
-    vpc_drop_last(N, P, TP).
-
-% as above for sum type; returns number of items in path to drop
-% We first have a special case for when we input P=vpe
-trunc_type_path_sum(Sum, P, N) :-
-    % XXX yuk so we can pass in P==vpe
-    ( P == vpe -> % nonvar(P)
-        trunc_type_path_sum(Sum, P1, N1),
-        vpc_length(P1, N1),
-        N = 0
+    ( setof(P-PInfo, type_path_sum(TS, [], P, vpef, PInfo), Ps) ->
+        true
     ;
-        trunc_type_path_sum1(Sum, P, N)
+        Ps = []
     ).
 
-% as above but P\==vpe
-trunc_type_path_sum1(sum(_, Prod), P, N) :-
-    trunc_type_path_prod(Prod, P, N).
-trunc_type_path_sum1(ref(_, Sum), P, N) :-
+% % check if type is atomic (has only constants, so no sharing possible)
+% atomic_type(T) :-
+%     \+ (
+%         type_struct(T, TS),
+%         type_path_sum(TS, [], _P, vpef, PInfo)
+%     ).
+
+% nondeterministically return valid path given type and ancestors
+% (ancestors include ref types for DC arguments - for proper
+% folding when there are explicit refs in a recursive type)
+% Also returns info about the location at the end of the path:
+% the DC,ArgNum enclosing it (could be _ref,1) plus the type
+% When we generate
+% self-sharing for input args, add sharing for each pair of paths with
+% same type and *compatible* DC+argnumber wrapper (ie, DC+argnumbers are
+% the same or at least one is a ref
+% The type in the info returned for arrow types is arrow/11 and the
+% DC,Argnum is '_arrow',1. Closures are a bit tricky (XXX check):
+% we pass in a flag, either vpef (to generate just empty paths where
+% there might actually be closure arguments - we don't know what
+% the types or data constructors are so these are just placeholders -
+% should do more testing and thinking about this) or varf, where instead
+% of vpe we add a fresh variables (this is so fold_type_path can
+% match it with any existing path within a closure argument)
+% XXX This is a nasty hack - might want to rethink it. Current code
+% suffers from a history or attempts to reuse code for generating paths
+% and folding/truncating them.
+% XXXX Possible BUG if we have a function as an argument and it has two
+% closure arguments that share - how is that captured with the current
+% self-sharing code for input arguments? We need to look at self-sharing
+% of actual arguments but not trigger precondition violation errors.
+% Maybe its OK because arrow type should give info about possible
+% sharing between closure arguments? But we should use this info in the
+% arrow type to add sharing for closures in the formal arguments.
+% Pawns fn could input a function with two closures that share, call the
+% function and extract the two arguments in two separate variables,
+% smash one, and the other will get smashed but the need for ! may be
+% missed.
+type_path_sum(Sum, Ancs, P, AF, PInfo) :-
+    sum_to_type(Sum, T),
+    % (writeln(T+Ancs) ; writeln(T-Ancs), fail),
+    type_path_sum1(Sum, [T|Ancs], P, AF, PInfo).
+
+type_path_sum1(sum(_, Prod), Ancs, P, AF, PInfo) :-
+    type_path_prod(Prod, Ancs, P, AF, PInfo).
+type_path_sum1(sum_ref(ref(T), Sum), Ancs, P, AF, PInfo) :-
     P = vpc('_ref', 1, 1, P1),
     (   P1 = vpe,
-        N = 0
+        PInfo = pinfo('_ref', 1, T)
     ;
-        trunc_type_path_sum(Sum, P1, N)
+        type_path_sum(Sum, Ancs, P1, AF, PInfo)
     ).
-trunc_type_path_sum1(ref_anc(N), P, N1) :-
-    % XXX yuk so we can use this code to generate all
-    % possible truncated paths for a given type, if P is a var
-    % we commit to a single path for it, otherwise there can be
-    % a large number of paths and we don't know what they are here since
-    % ref_anc() doesn't tell us the type (could change type
-    % representation so ref_anc() has type name I guess)
-    ( var(P) ->
-        P = vpc('_ref', 1, 1, vpe)
+% type_path_sum1(sum_anc(_, _), _Ancs, vpef, AF, PInfo). % never get this?
+type_path_sum1(sum_ref_anc(ref(T), _), _Ancs,
+            vpc('_ref', 1, 1, vpe), _AF, pinfo('_ref', 1, T)).
+type_path_sum1(Arrow, _Ancs, P, AF, PInfo) :-
+    Arrow = arrow(_, TypeR, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs),
+    PInfo = pinfo('_arrow', 1, Arrow), % details not used?
+    (AF = vpef ->
+        VPR = vpe
     ;
-        true
+        VPR = _ % return uninstantiated path for fold_type_path
     ),
-    vpc_length(P, L),
-    N1 is N + L - 1.
-trunc_type_path_sum1(arrow(_, _TypeR, _, _, _, _, _, _, _ROIs, _RWIs,
-_WOIs), P, 0) :-
-    % XXX yuk again
-    ( var(P) ->
-        P = vpc(cla(CAN), 1, 1, vpe),
-        max_cl_args(NCA),
-        % XX could find number of arrows in TypeR and subtract this from NCA
-        between(1, NCA, CAN)
+    P = vpc(cla(CAN), 1, 1, VPR),
+    % #closure args = #arrows in TypeR + 1
+    arrow_num(TypeR, NCAR),
+    NCA is NCAR + 1,
+    between(1, NCA, CAN).
+
+% as above but called with arg of a product (data constructor) so it
+% must be a ref (made explicit in the ref view that type_struct
+% currently returns but we don't really want it)
+% XX check Ancs...?OK
+type_path_ref(sum_ref(ref(T), Sum), Ancs, P, AF, DC, ANum, PInfo) :-
+    (   P = vpe,
+        PInfo = pinfo(DC, ANum, T)
     ;
-        true
+        type_path_sum(Sum, Ancs, P, AF, PInfo)
     ).
+type_path_ref(sum_ref_anc(ref(T), _), _, vpe,
+            _AF, DC, ANum, pinfo(DC, ANum, T)).
+type_path_ref(sum_anc(ref(T), _), _, vpe,
+            _AF, DC, ANum, pinfo(DC, ANum, T)).
 
 % as above for prod type (list of DCs)
-trunc_type_path_prod(DCs, vpc(DC, Arity, AN, P1), N) :-
+type_path_prod(DCs, Ancs, P, AF, PInfo) :-
     member(prod(DC, Arity, Sums), DCs),
-    between(1, Arity, AN),
-    nth1(AN, Sums, Sum),
-    trunc_type_path_sum(Sum, P1, N).
+    between(1, Arity, ANum),
+    nth1(ANum, Sums, Sum),
+    sum_to_type(Sum, ref(T)),
+    % \+ member(ref(T), Ancs), % avoids >1 path with same type for refs
+    P = vpc(DC, Arity, ANum, P1),
+    type_path_ref(Sum, [ref(T)|Ancs], P1, AF, DC, ANum, PInfo).
+
+% change rep so we always have type name paired with sum
+sum_to_type(sum(T, _), T).
+sum_to_type(sum_ref(T, _), T).
+sum_to_type(sum_anc(T, _), T).
+sum_to_type(sum_ref_anc(T, _), T).
+sum_to_type(arrow(_, _, _, _, _, _, _, _, _, _, _), void).
+
+% for type T, P is a path which may be too long (end corresponding to a
+% sum_ref_anc() node) and TP is the corresponding truncated path.
+fold_type_path(T, P, TP) :-
+    type_struct(T, TS),
+    fold_type_path_sum(TS, P, TP).
+
+% as above for sum type representation
+% New path must be a valid path of type TS, must have the same non-empty
+% suffix (TPC) and the same prefix (TPA) but missing a (possibly empty)
+% chunk in the middle (_TPB).  Is there only one such path????
+% Older: This coding uses backtracking and commits to the first solution; it
+% relies on app_vpc returning the longest path first XXX YUK re-code
+% this
+fold_type_path_sum(TS, P, TP1) :-
+    % TP must be a var below (needed for Older, not now???)
+    once((
+    app_vpc(TPA, TPBC, P),
+    app_vpc(_TPB, TPC, TPBC),
+    TPC \= vpe,
+    app_vpc(TPA, TPC, TP),
+    type_path_sum(TS, [], TP, varf, _PInfo)
+    )),
+    % Older version
+    % once((
+    % app_vpc(TP, _, P),
+    % type_path_sum(TS, [], TP)
+    % )),
+    TP1 = TP.
+
+% return all paths which may share corresponding to a type
+% YY might be worth caching this
+% Recursive types are folded so there are a finite number of paths.
+% There must be (at least) one path corresponding to each ref type in
+% terms of the given type. eg, for list(maybe(bool)) we have arguments,
+% ie (implicit) refs with types bool, maybe(bool) and list(maybe(bool)).
+% Furthermore, the way the code is structured, paths are build up
+% incrementally and occasionally just truncated, so if there are
+% different paths to the same ref type that don't make use of the
+% recursive nature of the given type, multiple paths are used. eg,
+% pair(maybe(bool),maybe(bool)) has two distinct paths to a maybe(bool)
+% ref and also two distinct paths to a bool ref.
+% The original style of type folding generated empty paths, eg
+% type_paths(list(bool), [vpe,vpc(cons,2,1,vpc(_ref,1,1,vpe))])
+% - note the path vpc(cons,2,2,vpc(_ref,1,1,vpe)) (the tail of the list)
+% is folded to the empty path
+% type_paths(list(maybe(bool)), [vpe,vpc(cons,2,1,vpc(_ref,1,1,vpe)),
+%     vpc(cons,2,1,vpc(_ref,1,1,vpc(just,1,1,vpc(_ref,1,1,vpe))))])
+% type_paths(term, [vpe,vpc(nv,2,1,vpc(_ref,1,1,vpe)),
+%     vpc(nv,2,2,vpc(_ref,1,1,vpe))])
+%     - the paths to a nested term inside var and cons/2.1 are both
+%     folded to vpe and the path to a nested list(term) is folded to
+%     vpc(nv,2,2,vpc(_ref,1,1,vpe)), the top level list(term).
+% type_paths(list(term), [vpe,vpc(cons,2,1,vpc(_ref,1,1,vpe)),
+%     vpc(cons,2,1,vpc(_ref,1,1,vpc(nv,2,1,vpc(_ref,1,1,vpe))))]
+%     - the nested list(term) is folded to vpe and paths to the term in
+%     cons/2.1 and the nested one in var are both folded to
+%     vpc(cons,2,1,vpc(_ref,1,1,vpe))
+% XXX Note: this version of the code was buggy when types had recursion
+% through (explicit) refs
+% It is important that all variables of a given type use these variable
+% paths consistently. In sharing analysis, for example, the code
+% termsc = cons(termb, termsa) the variable paths need adjusting.  For
+% example, termsc will need extra cons/2 elements prepended to the
+% paths for termb and termsa, and they may then need to be folded for
+% consistency with the type (done by trunc_type_path).
+% eg, for the code t = nv(f0, nil); ts = cons(t,nil), the path to nil for
+% t is vpc(nv,2,2,vpc(_ref,1,1,vpe)) but the path for ts has
+% vpc(cons,2,1,vpc(_ref,1,1,...)) prepended/wrapped around it, which
+% must then be truncated/folded to vpe.
+%
+% Any folding loses precision but folding to an empty path loses more
+% precision than we would like eg, xs = cons(true, nil); xm = just(xs)
+% Creates sharing between components of xs and components of xm. If we
+% smash the argument of just/1, xm is updated. xs is *not* modified but
+% because there is component of xs with a (folded) empty path, it
+% appears that xs is also updated. Rather than folding to the empty
+% path, we could fold to the first component of the path that has
+% recursion. eg
+% type_paths(list(bool), [vpc(cons,2,1,vpc(_ref,1,1,vpe)),
+% vpc(cons,2,2,vpc(_ref,1,1,vpe))]) - the second path used instead of
+% vpe, so all sub-lists are represented by the cdr of the list. The same
+% number of paths but in the example above it doesn't appear that xs is
+% updated because the shared path for lists in xm is now longer:
+% vpc(just,1,1,vpc(_ref,1,1,vpc(cons,2,2,vpc(_ref,1,1,vpe))))
+% maybe(list(bool)) has one more path than before; so do binary trees
+% because there are separate folded paths for left and right subtrees.
+% ZZZ - just need to code this...
+% type_paths(T, Ps) :-
+%     ( setof(TP, P^trunc_type_path(T, P, TP), Ps) ->
+%         true
+%     ;
+%         Ps = []
+%     ).
+% 
+% % for type T, P is a path which may be too long (end corresponding to a
+% % sum_ref_anc() node) and TP is the corresponding truncated path.  Can
+% % generate all TP values given just T (not all P values returned in this
+% % mode); may have duplicate solutions.
+% trunc_type_path(T, P, TP) :-
+%     type_struct(T, TS),
+%     trunc_type_path_sum(TS, P, N),
+%     vpc_drop_last(N, P, TP).
+% 
+% % as above for sum type; returns number of items in path to drop
+% % We first have a special case for when we input P=vpe
+% trunc_type_path_sum(Sum, P, N) :-
+%     % XXX yuk so we can pass in P==vpe
+%     ( P == vpe -> % nonvar(P)
+%         % ?? The next two lines check there is some path that can be
+%         % dropped completely; otherwise we can't have P=vpe so we fail
+%         trunc_type_path_sum(Sum, P1, N1),
+%         vpc_length(P1, N1),
+%         N = 0
+%     ;
+%         trunc_type_path_sum1(Sum, P, N)
+%     ).
+% 
+% % as above but P\==vpe
+% trunc_type_path_sum1(sum(_, Prod), P, N) :-
+%     trunc_type_path_prod(Prod, P, N).
+% trunc_type_path_sum1(sum_ref(_, Sum), P, N) :-
+%     P = vpc('_ref', 1, 1, P1),
+%     (   P1 = vpe,
+%         N = 0
+%     ;
+%         trunc_type_path_sum(Sum, P1, N)
+%     ).
+% trunc_type_path_sum1(sum_ref_anc(N), P, N1) :-
+%     % XXX yuk so we can use this code to generate all
+%     % possible truncated paths for a given type, if P is a var
+%     % we commit to a single path for it, otherwise there can be
+%     % a large number of paths and we don't know what they are here since
+%     % sum_ref_anc() doesn't tell us the type (could change type
+%     % representation so sum_ref_anc() has type name I guess)
+%     ( var(P) ->
+%         P = vpc('_ref', 1, 1, vpe)
+%     ;
+%         true
+%     ),
+%     vpc_length(P, L),
+%     % N1 is N + L - 3. % avoids empty paths but still problematic
+%     N1 is N + L - 1. % results in empty paths; bug with explicit refs?
+% trunc_type_path_sum1(arrow(_, _TypeR, _, _, _, _, _, _, _ROIs, _RWIs,
+% _WOIs), P, 0) :-
+%     % XXX yuk again
+%     ( var(P) ->
+%         P = vpc(cla(CAN), 1, 1, vpe),
+%         max_cl_args(NCA),
+%         % XX could find number of arrows in TypeR and subtract this from NCA
+%         between(1, NCA, CAN)
+%     ;
+%         true
+%     ).
+% 
+% % as above for prod type (list of DCs)
+% trunc_type_path_prod(DCs, vpc(DC, Arity, AN, P1), N) :-
+%     member(prod(DC, Arity, Sums), DCs),
+%     between(1, Arity, AN),
+%     nth1(AN, Sums, Sum),
+%     trunc_type_path_sum(Sum, P1, N).
 
 % we want to remove (fail here) sharing of Var if Arity=0 or the
 % DC/Arity don't match the path
 % Note that for recursive types we have to be careful.  For example, for
 % binary trees with data in leaves, DC branch/2 matches leaf/1 because
-% (with current precision of paths) the args of branch/2 are ref_anc
+% (with current precision of paths) the args of branch/2 are sum_ref_anc
 % nodes which are the same as the empty path.
 % Easiest to express negatively..
 % Maybe fix this so we use var paths as noted somewhere?
 % XX does it really have to be this complicated?/can we refactor?
+% XXXXX check with new path code with no _ref made explicit etc ZZZ
 alias_var_dcons_ok(Var, DC, Arity, SP) :-
     \+ alias_var_dcons_to_rm(Var, DC, Arity, SP).
 
@@ -2967,13 +3316,13 @@ alias_var_dcons_to_rm(Var, DC, Arity, s(vp(Var, vpc(DC1, Arity1, _, _)), _)) :-
     ;
         Arity \= Arity1
     ),
-    \+ has_ref_anc(DC, Arity).
+    \+ has_ref_anc(DC, Arity).  % XXXX can delete this??
 alias_var_dcons_to_rm(Var, DC, Arity, s(_, vp(Var, vpc(DC1, Arity1, _, _)))) :-
     (   DC \= DC1
     ;
         Arity \= Arity1
     ),
-    \+ has_ref_anc(DC, Arity).
+    \+ has_ref_anc(DC, Arity).  % XXXX can delete this??
 
 % check if DC/Arity is in type with recursion to node at or above this
 % DC/Arity.  Eg for branch/2 its true.
@@ -2986,9 +3335,9 @@ has_ref_anc(DC, Arity) :-
     has_ref_anc_sum(Sum, 2).
 
 % type has reference to ancestor >= D
-has_ref_anc_sum(ref_anc(N), D) :-
+has_ref_anc_sum(sum_ref_anc(_, N), D) :-
     N >= D.
-has_ref_anc_sum(ref(_, sum(_, Sums)), D) :-
+has_ref_anc_sum(sum_ref(_, sum(_, Sums)), D) :-
     D1 is D + 2,
     member(Sum, Sums),
     has_ref_anc_sum(Sum, D1).
@@ -3129,13 +3478,11 @@ infer_post(PS, SS) :-
     pstat_stat(PS, S),
     % empty_assoc(VTm0),
     globals_type_assoc([], VTm0),
-    add_typed_anns(S, S1, VTm0, _VTm),
+    add_typed_anns(S, S1, VTm0, VTm),
     smash_type_vars(S1), % XX?
     % add_last_anns not needed but last_use anns can speed things up
     add_last_anns(S1, S2, last(_), [], _UVs, [], _IBVs),
-    % xxx(infer_post),
-    % writeln(S2),
-    alias_stat(S2, [], SS).
+    alias_stat(S2, VTm, [], SS).
 
 % XX function declarations currently asserted rather than being passed
 % around: just fname and canonical type stored
@@ -3143,27 +3490,29 @@ infer_post(PS, SS) :-
 
 % XX function definitions currently asserted rather than being passed
 % around
-% fn_def_struct(Fn, Args, Stat),
-:- dynamic(fdef_struct/3).
+% fn_def_struct(Fn, Args, Stat, VTm),
+:- dynamic(fdef_struct/4).
 
-fn_def_struct(A, B, C) :- fdef_struct(A, B, C).
+fn_def_struct(A, B, C, VTm) :- fdef_struct(A, B, C, VTm).
 
 %%%%%%
 % Overall handling of statements for sharing analysis
 % XXX should remove alias info from dead vars some time
-alias_stat(C-_Ann, SS0, SS) :-
+% Second arg here and related preds is Var-Type map for statement, which
+% we need just when folding types for vars that have paths that share
+% with LHS of := (not used in some of preds)
+alias_stat(C-_Ann, _VTm, SS0, SS) :-
     C = empty_stat, % not needed?
     SS = SS0.
-alias_stat(C-_Ann, SS0, SS) :-
+alias_stat(C-_Ann, VTm, SS0, SS) :-
     C = seq(Sa, Sb),
-    alias_stat(Sa, SS0, SS1),
-    alias_stat(Sb, SS1, SS).
-alias_stat(C-Ann, SS0, SS) :-
+    alias_stat(Sa, VTm, SS0, SS1),
+    alias_stat(Sb, VTm, SS1, SS).
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_var(Vl, Vr),
     VPl = vp(Vl, vpe),
     VPr = vp(Vr, vpe),
-    % xxx(as),
-    alias_stat_veq(VPl, VPr, Ann, SS0, SS),
+    alias_stat_veq(VPl, VTm, VPr, Ann, SS0, SS),
     % if Vr has different type to Vl we have a cast and if there is
     % any sharing introduced between these vars we must not implicitly
     % mutate Vr later
@@ -3178,17 +3527,17 @@ alias_stat(C-Ann, SS0, SS) :-
     ;
         true
     ).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_deref(Vl, Vr),
     VPl = vp(Vl, vpe),
     VPr = vp(Vr, vpc('_ref', 1, 1, vpe)),
-    alias_stat_veq(VPl, VPr, Ann, SS0, SS).
-alias_stat(C-Ann, SS0, SS) :-
+    alias_stat_veq(VPl, VTm, VPr, Ann, SS0, SS).
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = deref_eq(Vl, Vr),
     VPl = vp(Vl, vpc('_ref', 1, 1, vpe)),
     VPr = vp(Vr, vpe),
-    alias_stat_veq(VPl, VPr, Ann, SS0, SS).
-alias_stat(C-Ann, SS0, SS) :-
+    alias_stat_veq(VPl, VTm, VPr, Ann, SS0, SS).
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = assign(Vl, Vr),
     member(typed(T), Ann),
     % type_struct(T, Sum),
@@ -3196,6 +3545,7 @@ alias_stat(C-Ann, SS0, SS) :-
     % VPr = vp(Vr, vpe),
     findall(BV, member(bang(_, BV), Ann), Bs),
     check_banged_lhs(VPl, Bs, SS0, Ann, (*Vl := Vr)), % IO
+    % find self-sharing (existing) components of RHS
     ( setof(PRA, VPRA^(VPRA=vp(Vr, PRA), member(s(VPRA, VPRA), SS0)), PRAs) ->
         true
     ;
@@ -3226,22 +3576,22 @@ alias_stat(C-Ann, SS0, SS) :-
     sharing_union(SSNew, SS1, SSRHS),
     % now handle var paths which alias LVP
     var_ref_alias_vps(VPl, SS0, AVPs),
-    add_sharing_for_lhs_aliases(VPl, LVPs, AVPs, [], SSNew2),
+    add_sharing_for_lhs_aliases(T, VTm, VPl, LVPs, AVPs, [], SSNew2),
     sort(SSNew2, SSNew3),
     sharing_union(SSNew3, SSRHS, SS).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = var_stat(V),
     ( member(last_stat, Ann) ->
-        alias_stat(eq_var(returnvar, V)-Ann, SS0, SS)
+        alias_stat(eq_var(returnvar, V)-Ann, VTm, SS0, SS)
     ;
         SS = SS0
     ).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = cases(V, Cases),
     member(typed(T), Ann),
-    map(alias_stat_case(V, T, SS0), Cases, SSs),
+    map(alias_stat_case(V, VTm, T, SS0), Cases, SSs),
     foldr(ord_union, [], SSs, SS). % XX balanced fold is better
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_dc(V, DC, Arity, Args),
     ( Args = [] -> % optimise case for constants
         SS = SS0
@@ -3252,30 +3602,37 @@ alias_stat(C-Ann, SS0, SS) :-
         % XX hmm can fail if prev type checking failed
         % maybe we should not attempt sharing analysis if type checking
         % fails
-        alias_stat_dc(V, TDSum, DC, Arity, 1, DCAs, SS0, SSN),
+        TDSum = sum(_, TDProds),
+        member(prod(DC, Arity, ASums), TDProds),
+        alias_stat_dc(V, VTm, ASums, TDSum, DC, Arity, 1, DCAs, SS0, SSN),
         sort(SSN, SSNew),
         sharing_union(SSNew, SS0, SS)
     ).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_app(V, Fn, Args),
     % we are applying a variable which might be a closure.  We don't
-    % know if returns a closure or not (see note in eq_sapp case)
-    alias_stat_app(V, Fn, Args, Ann, SS0, SSN),
+    % know (yet) if it returns a closure (see note in eq_sapp case)
+    alias_stat_app(V, VTm, Fn, Args, Ann, SS0, SSN),
     length(Args, Arity),
-    renumbered_closure_arg_sharing(Arity, Fn, V, SS0, SSN3),
+    member(typed(T), Ann),
+    ( T = arrow(_,_,_,_,_,_,_,_,_,_,_) ->
+        renumbered_closure_arg_sharing(Arity, Fn, V, SS0, SSN3)
+    ;
+        SSN3 = SS0
+    ),
     sort(SSN3, SSN4),
     sharing_union(SSN4, SSN, SSN1),
     sharing_union(SSN1, SS0, SS).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_sapp(V, Fn, Args),
     % known saturated app: currently we only get this for known fns (not
     % vars which might be closures), so its a bit simpler.  Potentially
     % type analysis could pick up some cases where applications of vars
     % are known to be saturated (this would result in more efficient
     % compiled code).  If so, we may need a more general case here.
-    alias_stat_app(V, Fn, Args, Ann, SS0, SSN),
+    alias_stat_app(V, VTm, Fn, Args, Ann, SS0, SSN),
     sharing_union(SSN, SS0, SS).
-alias_stat(C-Ann, SS0, SS) :-
+alias_stat(C-Ann, VTm, SS0, SS) :-
     C = eq_papp(V, Fn, Args),
     % (currently) known fn without enough args
     % no args -> no sharing (should use eq_var for such code??)
@@ -3292,13 +3649,13 @@ alias_stat(C-Ann, SS0, SS) :-
         sort(SSN1, SSN2),
         sharing_union(SSN2, SS0, SS)
     ;
-        alias_stat_app(V, Fn, Args, Ann, SS0, SSN),
+        alias_stat_app(V, VTm, Fn, Args, Ann, SS0, SSN),
         sharing_union(SSN, SS0, SS)
     ).
 
 % case for application of fns/vars with args - return new sharing.
 % Fn can be a constant or a variable.
-alias_stat_app(V, Fn, Args, Ann, SS0, SSN) :-
+alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     member(typed_rhs(RType), Ann),
     length(Args, Arity),
     LVP = vp(V, vpe),
@@ -3323,9 +3680,16 @@ alias_stat_app(V, Fn, Args, Ann, SS0, SSN) :-
     map('X,vp(X,vpe)', RWIs, RWVPs),
     map('X,vp(X,vpe)', WOIs, WOVPs),
     length(CLATs, NCL),
-    CLMin is Arity + 1,
-    CLMax is CLMin + NCL - 1,
-    mk_closure_var_paths(CLMin, CLMax, V, CLFnPs, _SSSC),
+    % CLMin is Arity + 1,
+    % CLMax is CLMin + NCL - 1,
+    CLMin is 1,
+    CLMax is NCL,
+    % CLMax is CLMin + NCL - 2, % XXX right?
+    % XXX currently get extra cla's for LHS (V) Should somehow use actual
+    % arity of function (length(RFAs)-1?) not just supplied args
+    % and current closure args???
+    % mk_closure_var_paths(CLMin, CLMax, V, CLFnPs, _SSSC),
+    mk_closure_var_paths(CLMin, CLMax, Fn, CLFnPs, _SSSC),
 %     length(RFAs, NRFA),
 %     ND is NRFA - 1 - Arity - NCL,
 %     length(Dummies, ND), % need at least ND dummies; could have more
@@ -3343,11 +3707,13 @@ alias_stat_app(V, Fn, Args, Ann, SS0, SSN) :-
     append(RWVPs, DUVs, AllDUs),
     check_banged(Bs, AllDUs, SS0, Ann, (LVP = app(Fn, AVPs))), % IO
     % we include abstract with var for type so it matches any type
-    append([[vp(abstract(_),vpe)], ROVPs, RWVPs, AVPs], AllVPs),
+    % (but we check later the type is not void)
+    append([[vp(abstract(AbsType),vpe)], ROVPs, RWVPs, AVPs], AllVPs),
     (   member(S, SS0),
         S = s(SVP1, SVP2),
         SVP1 \= SVP2, % ignore self-sharing
         pair_in_var_list(S, AllVPs), % note result of fn can't be in precond
+        AbsType \== void, % ignore bogus sharing with abstract(void)
         % we generalise abstract so any type/path can match
         gen_abstract(SVP1, SVP3),
         gen_abstract(SVP2, SVP4),
@@ -3442,8 +3808,8 @@ cla_path(V, N, P, vp(V,vpc(cla(N),1,1,P))).
 
 % for assignment, convert path for RHS to var path for LHS
 rvp_lvp(T, Vl, RP, vp(Vl, LP)) :-
-    % avoid repeated solutions
-    once(trunc_type_path(T, vpc('_ref', 1, 1, RP), LP)).
+    % avoid repeated solutions YYY no longer needed
+    once(fold_type_path(T, vpc('_ref', 1, 1, RP), LP)).
 
 % make self-alias
 self_alias(VP, s(VP, VP)).
@@ -3453,12 +3819,12 @@ alias_var(Vr, Pr, LVP, S) :-
     mk_alias_pair(LVP, vp(Vr, Pr), S).
 
 % given ancestor type, remove ref() wrapper from type or replace
-% ref_anc(2) by ancestor
-strip_ref_type(_, ref(_, T), T).
-strip_ref_type(Anc, ref_anc(2), Anc).
+% sum_ref_anc(2) by ancestor
+strip_ref_type(_, sum_ref(_, T), T).
+strip_ref_type(Anc, sum_ref_anc(_, 2), Anc).
 
 % alias_stat for (possibly deref) var equality
-alias_stat_veq(VPl, VPr, Ann, SS0, SS) :-
+alias_stat_veq(VPl, _VTm, VPr, Ann, SS0, SS) :-
     member(typed(T), Ann),
     type_struct(T, Sum),
     % dataflow a bit tricky here - SSN filled in later
@@ -3470,15 +3836,20 @@ alias_stat_veq(VPl, VPr, Ann, SS0, SS) :-
         LSum = Sum,
         SSN1 = SSN
     ),
+    ( VPr = vp(_, vpc('_ref', 1, 1, _)) ->
+        RT = ref(T)
+    ;
+        RT = T
+    ),
     ( VPr = vp(abstract(TA), vpe) ->
         % for abstract sharing, find all paths for the type (we assume
         % each component of abstract exists) then create all the sharing
         % pairs (that includes self sharing for abstract)
         type_paths(TA, RPs),
-        rpath_aliases(RPs, VPr, LSum, VPl, SSN)
+        rpath_aliases(RPs, RT, VPr, LSum, VPl, SSN)
     ;
         findall(RP, var_path_shared(SS0, VPr, RP), RPs),
-        rpath_aliases(RPs, VPr, LSum, VPl, SSN)
+        rpath_aliases(RPs, RT, VPr, LSum, VPl, SSN)
     ),
     sort(SSN1, SSNew),
     sharing_union(SSNew, SS0, SS).
@@ -3492,7 +3863,8 @@ path_type_map(vpc(DC, _Arity, Arg, Path), T0, T) :-
         member(dcons(DC, TArgs), Def0),
         % length(TArgs, Arity), % not needed?
         nth1(Arg, TArgs, T1),
-        Path = vpc('_ref', _, _, Path1), % will always be a ref in path
+        % Path = vpc('_ref', _, _, Path1), % will always be a ref in path
+        Path1 = Path, % no longer will always be a ref in path
         path_type_map(Path1, T1, T)
     ;
         % arrow types don't appear in tdef/2 and we need a special case
@@ -3520,18 +3892,66 @@ var_path_shared(Ss, vp(V, VP), PSuff) :-
 % and also for fixing the type for abstract/1
 % We use abstract(T) as a variable name, where T is the type of the
 % component of the abstract variable that could be shared.  eg
-% abstract(int) is  used as a fake variable that may share with any
-% int component of an abstract var.
-rpath_aliases([], _, _, _, []).
-rpath_aliases([P|Ps], VPr, LSum, VPl, Ss) :-
-    VPr = vp(Vr, Pr),
+% abstract(maybe(int)) is used as a fake variable that may share with any
+% maybe(int) component of an abstract var. Note we could potentially
+% avoid abstract sharing for atomic types but currently include it so
+% x=abstract; y=abstract results in all components ox x and y sharing.
+% XXX re-think and document all the cases here - has been modified a bit
+% with new type paths/folding regime
+rpath_aliases([], _, _, _, _, []).
+rpath_aliases([P|Ps], RT, VPr, LSum, VPl, Ss) :-
     VPl = vp(Vl, Pl),
-    app_vpc(Pl, P, Pl1),
+    VPr = vp(Vr, Pr),
     app_vpc(Pr, P, Pr1),
-    ( trunc_type_path_sum(LSum, Pl1, N) ->
-        vpc_drop_last(N, Pl1, Pl2),
+    % compute path for l, if it exists (use maybe): MPl
+    ( Pr = vpe ->
+        app_vpc(Pl, P, Pl1),
+        fold_type_path_sum(LSum, Pl1, Pl2), % should always succeed
+        MPl = just(Pl2)
+    ;
+        % either eq_deref: l = *r
+        % or eq_case: cases r of { case dc(... *l ...) ...}
+        % type of r has eg _ref() wrapper and this might result in more
+        % folding, like r._ref.cons/2.2 folded to r._ref.  We need to undo
+        % the folding to construct the l.cons/2.2 path to share it with
+        % We do this by generating paths for Pl until we find one that,
+        % when prefixed with dc (or _ref), folds to the path we want
+        % Best to encapsulate this inverse of type folding (might need
+        % it elsewhere also - see paper on sharing analysis)
+        % Note: this may fail if the type of l is atomic and thus has no
+        % paths (r has one path with a single ref). Thus we use a maybe to
+        % return the new path for l.
+        Pr = vpc(DC, Arity, ArgN, _),
+        app_vpc(Pr, P, Pr1),
+        sum_to_type(LSum, LT),
+        ( Pl = vpc('_ref', 1, 1, vpe) ->
+            app_vpc(Pl, P, Pl1),
+            fold_type_path_sum(LSum, Pl1, Pl2), % XX should succeed?
+            MPl = just(Pl2)
+        % XXX check this works for nested arrow types?
+        % XXXX and anything else...
+        ; (type_path_sum(LSum, [], Pl1, vpef, _PInfo),
+            fold_type_path(ref(LT), vpc(DC, Arity, ArgN, Pl1), Pr1))
+        ->
+            MPl = just(Pl1)
+        ;
+            MPl = nothing
+        )
+    ),
+    ( MPl = just(Pl3) ->
+        % print(rpath_aliases(Vl, RT, N, Pr1, Pl1, Pl3)), nl,
         % for abstract we need to fix the type and include
         % self-aliasing for abstract of that type
+%         ( Vr = abstract(T) ->
+%             Pr2 = vpe,
+%             Vr1 = abstract(T1),
+%             path_type_map(Pr1, T, T1),
+%             ( atomic_type(T1) ->
+%                 Ss = [S2|Ss1]
+%             ;
+%                 mk_alias_pair(vp(Vr1, vpe), vp(Vr1, vpe), SSSAS),
+%                 Ss = [SSSAS, S1, S2|Ss1]
+%             )
         ( Vr = abstract(T) ->
             path_type_map(Pr1, T, T1),
             Vr1 = abstract(T1),
@@ -3543,12 +3963,14 @@ rpath_aliases([P|Ps], VPr, LSum, VPl, Ss) :-
             Vr1 = Vr,
             Ss = [S1, S2|Ss1]
         ),
-        mk_alias_pair(vp(Vl, Pl2), vp(Vr1, Pr2), S1),
-        mk_alias_pair(vp(Vl, Pl2), vp(Vl, Pl2), S2) % self-alias
+%XXX Vl wrong below; need
+% app_vpc(Pl, P, Pl1) + fold
+        mk_alias_pair(vp(Vl, Pl3), vp(Vr1, Pr2), S1),
+        mk_alias_pair(vp(Vl, Pl3), vp(Vl, Pl3), S2) % self-alias
     ;
         Ss = Ss1
     ),
-    rpath_aliases(Ps, VPr, LSum, VPl, Ss1).
+    rpath_aliases(Ps, RT, VPr, LSum, VPl, Ss1).
 
 'X,vp(X,vpe)'(X,vp(X,vpe)).
 
@@ -3626,9 +4048,6 @@ check_ho_types_arrow(Anns, RHS, LType, RType) :-
     (   member(SP, LPreSS1),
         \+ member(SP, RPreSS1),
         % above checks "not subset", now we ignore L-only sharing
-        % write_src(Anns),
-        % print(SP), nl, print(LPreSS1), nl, print(RPreSS1),nl,
-        % writeln(LType), writeln(RType),
         SP = s(VPC1, VPC2),
         VPC1 \= VPC2,       % ignore self sharing for a start
         (   VPC1 = vp(SVar, _)
@@ -3698,16 +4117,15 @@ check_ho_types_arrow(Anns, RHS, LType, RType) :-
 % separarate vars, maybe).
 % Worth looking at some examples to consider precision XX
 % XXXX add stuff to handle cyclic terms + ??sharing between args
-alias_stat_case(Var, T, SS0, case_dc(DC, Arity, As, S), SS) :-
+alias_stat_case(Var, VTm, T, SS0, case_dc(DC, Arity, As, S), SS) :-
     filter(alias_var_dcons_ok(Var, DC, Arity), SS0, SS1),
     type_struct(T, TS),
     TS = sum(_, Ps),
     member(prod(DC, Arity, Sums), Ps),
-    % xxx(_),
     eq_case_args(As, Sums, TS, 1, Var, DC, Arity, SS0, SSN),
     sort(SSN, SSN1),
     sharing_union(SSN1, SS1, SS6),
-    alias_stat(S, SS6, SS).
+    alias_stat(S, VTm, SS6, SS).
 
 % 'X,var(X)'(X,var(X)).
 % 'X,var(X)'(X,vp(X,vpc('_ref',1,1,vpe))).
@@ -3719,26 +4137,27 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
     % case is called with a top level type
     % TS=sum(_,[prod([Sum|Sums])...])
     % and the case args have the type one level down (ie, Sum).
-    % They must be a reference to the top level, ref_anc(2), or a
-    % reference to another type, ref(...).
-    (   Sum = ref(RTN1, _Sum1),
-        % need type_struct call to get ref_anc right
+    % They must be a reference to the top level, sum_ref_anc(_, 2), or a
+    % reference to another type, sum_ref(...).
+    (   Sum = sum_ref(RTN1, _Sum1),
+        % need type_struct call to get sum_ref_anc right
         type_struct(RTN1, RSum)
     ;
-        Sum = ref_anc(2),
+        Sum = sum_ref_anc(_, 2),
         LSum = sum(TSN, _), % extract parent info to construct arg type
-        RSum = ref(ref(TSN), LSum)
+                            % XXX can get from sum_ref_anc/2 now?
+        % XXX need type_struct here if there is recursion through ref
+        % and folding is used??
+        RSum = sum_ref(ref(TSN), LSum)
     ),
-    % we may also need to fold path for Vl
-    Pl1 = vpc(DC, Arity, A, vpc('_ref', 1, 1, vpe)),
-    ( trunc_type_path_sum(LSum, Pl1, N) ->
-        vpc_drop_last(N, Pl1, Pl2)
-    ;
-        writeln('Huh? trunc_type_path_sum failed in eq_case_args'),
-        Pl2 = Pl1
-    ),
+    % we may also need to fold path for Vl ???
+    % - shouldn't be necessary now because empty paths are avoided
+    % Pl1 = vpc(DC, Arity, A, vpc('_ref', 1, 1, vpe)),
+    Pl1 = vpc(DC, Arity, A, vpe),
+    Pl2 = Pl1,
     VPl = vp(Vl, Pl2),
     VPr = vp(Vr, vpc('_ref', 1, 1, vpe)),
+    % VPr = vp(Vr, vpe),
     findall(LP, var_path_shared(SS0, VPl, LP), LPs),
     % could move this earlier
     ( LPs = [] ->
@@ -3747,7 +4166,11 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
         true
     ),
     mk_alias_pair(VPr, VPr, S), % self-alias
-    rpath_aliases(LPs, VPl, RSum, VPr, SSN1),
+    % left and right a bit confused - in rpath_aliases left is the new
+    % var being bound and right is the existing var; for case the new
+    % vars being bound are textually after the existing var
+    sum_to_type(LSum, RT),
+    rpath_aliases(LPs, RT, VPl, RSum, VPr, SSN1),
     append(SSN1, [S|SSN2], SSN),
     A1 is A + 1,
     eq_case_args(As, Sums, LSum, A1, Vl, DC, Arity, SS0, SSN2).
@@ -3756,22 +4179,26 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
 % XXXX do we miss adding sharing between different paths for
 % Vl if different VPr's share???
 % YES- BUG, eg see sa(*xp=1; p=t2(xp,xp))
-alias_stat_dc(_, _, _, _, _, [], _, []).
-alias_stat_dc(Vl, LSum, DC, Arity, A, [VPr|Args], SS0, SSN) :-
+alias_stat_dc(_, _VTm, _, _, _, _, _, [], _, []).
+alias_stat_dc(Vl, VTm, [ASum|ASums], LSum, DC, Arity, A, [VPr|Args], SS0, SSN) :-
     findall(RP, var_path_shared(SS0, VPr, RP), RPs),
-    Pl1 = vpc(DC, Arity, A, vpc('_ref', 1, 1, vpe)),
-    ( trunc_type_path_sum(LSum, Pl1, N) ->
-        vpc_drop_last(N, Pl1, Pl2)
+    % Pl1 = vpc(DC, Arity, A, vpc('_ref', 1, 1, vpe)),
+    Pl1 = vpc(DC, Arity, A, vpe),
+    % we may also need to fold path for Vl ???
+    % - shouldn't be necessary now because empty paths are avoided
+    ( fold_type_path_sum(LSum, Pl1, Pl1T) ->
+        Pl2 = Pl1T
     ;
         writeln('Huh? trunc_type_path_sum failed in alias_stat_dc'),
         Pl2 = Pl1
     ),
     VPl = vp(Vl, Pl2),
     mk_alias_pair(VPl, VPl, S), % self-alias
-    rpath_aliases(RPs, VPr, LSum, VPl, SSN1),
+    sum_to_type(ASum, RT),
+    rpath_aliases(RPs, RT, VPr, LSum, VPl, SSN1),
     append(SSN1, [S|SSN2], SSN),
     A1 is A + 1,
-    alias_stat_dc(Vl, LSum, DC, Arity, A1, Args, SS0, SSN2).
+    alias_stat_dc(Vl, VTm, ASums, LSum, DC, Arity, A1, Args, SS0, SSN2).
 
 %%%%%%
 % Overall handling of function definitions
@@ -3781,7 +4208,7 @@ alias_fn(Fn) :-
     nfdec_struct(Fn, T),
     func_arity(Fn, Arity),
     arrow_to_sharing_dus(Arity, T, RFAs, Precond, Postcond, BArgs, ROIs, RWIs, WOIs),
-    fn_def_struct(Fn, Args, Stat),
+    fn_def_struct(Fn, Args, Stat, VTm),
     %
     % check all args which are banged in definition are banged in
     % declaration XX could delete if types are annotated with purity
@@ -3845,7 +4272,7 @@ alias_fn(Fn) :-
     % append([ROIs, RWIs, WOIs], Is),
     % map('X,vp(X,vpe)', Is, IPs),
     % append(IPs, ResArgs, AllResArgs),
-    ( alias_stat(Stat, SSI2, SS) ->
+    ( alias_stat(Stat, VTm, SSI2, SS) ->
         % need to check for sharing between args+result which is not
         % declared in postcondition
         % also need to check for state vars which are introduced locally by
@@ -3867,11 +4294,17 @@ alias_fn(Fn) :-
                 print('Error: postcondition violated:'(Fn, VP1, VP2)),
                 nl
             ;
+                % Could be safe to allow result to share with strict components
+                % of a state var, but not top level _ref (which the thing saved and
+                % restored in encapsulated sub-computations that use the state var)
                 memberchk(V2, SVs),
                 print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
                 nl
             )
         ;
+            % Could be safe to allow result to share with strict components
+            % of a state var, but not top level _ref (which the thing saved and
+            % restored in encapsulated sub-computations that use the state var)
             memberchk(vp(V2, _), ResArgs1),
             memberchk(V1, SVs),
             print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
@@ -4129,16 +4562,24 @@ lookup_assoc(Key, Assoc, Value, NewAssoc) :-
 
 % return value associated with key; insert var if not there already
 % but print error (best pass in Anns for better msg)
+% Defflag inserted/checked also
 lookup_old_assoc(Key, Assoc, Value, NewAssoc) :-
-    ( get_assoc(Key, Assoc, Value) ->
-        NewAssoc = Assoc
+    ( get_assoc(Key, Assoc, Value-DF) ->
+        NewAssoc = Assoc,
+        ( (DF = def ; checking_pre_post) ->
+            true
+        ;
+            writeln(Assoc),
+            writeln('Error: possibly undefined variable '(Key))
+        )
     ;
         ( checking_pre_post ->
             true
         ;
+            writeln(Assoc),
             writeln('Error: undefined variable '(Key))
         ),
-        put_assoc(Key, Assoc, Value, NewAssoc)
+        put_assoc(Key, Assoc, Value-undef, NewAssoc)
     ).
 
 % dummy pred we can put a spy point on
@@ -4249,7 +4690,7 @@ comp(eval).
 comp(wam).
 comp(isort).
 
-alias_fn(list_bst_du, 4).
+alias_fn(list_bst_du).
 
 % goals which distinguish between old sharing imp and new (with
 % self-sharing to keep track of what paths are possible for each var
@@ -4265,6 +4706,18 @@ sa((ys=nil; *ysp=ys;b=true; xs=cons(b,ys); *ysp := xs)).
 sa((ys=nil;b=true; xs=cons(b,ys); *xsp = xs; *xsp:=ys)).
 sa(*b = nil;*b := cons(true,*b)).
 sa(*b = cons(true,nil); *b := *b).
+
+% precision with non-recursive types versus recursive
+sa(t = true; b = just(t); c = nothing; *x = b).
+sa(t = true; b = just(t); c = nothing; *x = b; *x := c).
+sa(t = true; b = cons(t, nil); c = nil; *x = b).
+sa(t = true; b = cons(t, nil); c = nil; *x = b; *x := c).
+
+% required type unfolding for c = *b
+sa(a = cons(true, nil); *b = a; c = *b).
+sa(a = cons(true,nil); cases a of {nil: true case cons(*b,*c): false}).
+
+
 
 % illustrates some tricky things about arrow types - extra args, extra
 % types, closure sharing in postconds...
@@ -4291,28 +4744,20 @@ san('cord.pns').
 san('cord_poly.pns').
 san('ho.pns').
 san('imp.pns').
-
 san('bst.pns').
-
 san('bst_a.pns').
 san('test.pns').
 san('tmp.pns').
 san('pbst.pns').
 san('p1bst.pns').
 san('bst_poly.pns').
+san('map.pns').
 
 spy(alias_stat).
 spy(in_as).
 spy(xxx).
 spy(arrow_to_sharing_dus).
 /^alias_stat
-[pawns].
-[pawns,comp].
-['../pawns.pl', '../comp.pl'].
-['../compiler/pawns.pl', '../compiler/comp.pl'].
-
-
-prolog
 
 spy(rm_unshared_var_ref_aliases).
 sa(*zp = 42; *wp = 43;    *yp = zp;    *xp = yp;    *yp := wp).
@@ -4326,13 +4771,66 @@ sa(*xp=1; p=t2(xp,xp)).
 
 alias_stat(eq_var(x,abstract(list(pair(int, int))))- [typed(list(pair(int, int)))], [], SS), print(SS), fail.
 
-*/
 
+san('../examples/cord.pns').
+san('cord.pns').
+sa(l = cons(true, nil); c = leaf(l)).
+sa(l = cons(true, nil); c = branch(leaf(nil), leaf(l))).
+% XXX s(c.leaf.cons/2.1,l.cons/2.1) missing???
+% XXX plus s(c.leaf.cons/2.1,c.leaf.cons/2.1)
+sa(c0 = leaf(nil)).
+sa(c0 = leaf(nil); c = branch(c0, leaf(nil))).
+sa(l = cons(true, nil); cl = leaf(l); a = leaf(nil)).
+sa(l = cons(true, nil); cl = leaf(l); a = leaf(nil); x = branch(a, cl)).
+% 
+
+
+type_struct(r2, S), trunc_type_path_sum(S, P, N), writeln(P).
+type_paths(r3, Ps).
+sa(a = r1z; b = r1c(a); c = r1c(b)).
+sa(a = r2z; b = r2c2(a); r=r2c1(b)).
+type_paths(cb, P).
+
+san('rectype.pns').
+san('testuf.pns').
+san('eval.pns').
+san('wam.pns').
+san('isort.pns').
+san('bst_poly.pns').
+san('bst1.pns').
+san('cord.pns').
+san('cord_poly.pns').
+san('ho.pns').
+san('bst.pns').
+san('bst_a.pns').
+san('pbst.pns').
+san('p1bst.pns').
+san('bst_poly.pns').
+san('map.pns').
+san('tmp.pns').
+
+spy(alias_stat).
+spy(alias_stat_veq).
+
+T = ref(cb), type_struct(T, TS), type_path_sum(TS, [], P, vpef, PInfo).
+alias_fn(find).
+
+[pawns].
+[pawns,comp].
+['../pawns.pl', '../comp.pl'].
+['../compiler/pawns.pl', '../compiler/comp.pl'].
+['../compiler/pawns.pl'].
+prolog
+*/
+ct :- retractall(type_struct_c(_,_)).
 x :- spy(xxx).
 as :- spy(alias_stat).
+aa :- spy(alias_stat_app).
+ac :- spy(alias_stat_case).
 ar :- spy(arrow_to_sharing_dus).
 at :- spy(add_typed_anns).
 t :- trace.
-p :- [pawns].
+% p :- [pawns].
+p :- ['../compiler/pawns.pl'].
 
 

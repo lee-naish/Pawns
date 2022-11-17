@@ -12,6 +12,8 @@
 // Could separate some stuff and put in in a library instead
 // XXX need to add a bunch more (see also comp.pl)
 // bool is munged by prefixing with PAWNS_ - maybe do the same for int
+// XXX probably should migrate compiled version of
+// ../examples/array.pns here also
 
 // GC stuff - gcc flags don't seem to work
 // adtpp allows us to override default malloc/free

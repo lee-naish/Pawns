@@ -48,9 +48,10 @@ find :: element -> element
     post rp = np.
 find(np) = {
     cases *np of {
-    case root(rank): np
+    % case root(rank): np
     case child(*pparent):
-        rp = find(!pparent) !np;
+        % rp = find(!pparent) !np;
+	rp = np;
         *!pparent := *rp !np!rp; % collapse chain (rp not really changed)
         rp
     }

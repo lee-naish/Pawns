@@ -2,6 +2,13 @@ Incomplete list of bugs/limitations
 
 See XXX in code
 
+Type casting in code - currrently looks like
+    n = (nil :: list('_type_param'(1)))
+ugly A F.  Need to use version of
+read that captures (type) var names and effectively have scope
+being declaration of function plus function definition. A bit
+messy but not too bad.
+
 Various things to fix in sharing analysis - see paper for
 "final" version of algorithm
 
@@ -24,3 +31,10 @@ see example/bst_poly.pns
 p ../examples/
 ~/bin/pnsc bst_poly.pns
 vim bst_poly.pns
+
+examples/rectype.pns
+% f1(a) = r2c1(r2c2(a)).   % XXX should get redefinition error
+
+pawns.pl:
+% XXXX Possible BUG if we have a function as an argument and it has two
+% closure arguments that share...

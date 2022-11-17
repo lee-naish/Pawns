@@ -55,7 +55,8 @@ list_bst_du(a_bst, a_ints, xs, tp) = {
 % destructively add int to tree we have ptr to
 % - traverse down to leaf and clobber it (while loop would be nice)
 bst_insert_du :: int -> ref(bst) -> void
-    sharing bst_insert_du(x,tp)=voidvar
+    % sharing bst_insert_du(x,!tp)=voidvar
+    sharing bst_insert_du(x,tp)=voidvar % XXXX no ! before tp
     pre nosharing
     post nosharing.
 bst_insert_du(x, tp) = {
@@ -97,6 +98,7 @@ test1(a_bst, v) = {
     t1 = bst_id(a_bst, *tp);
     bst_insert_du(43, !tp);      % Error: missing !t1
     bst_insert_du(44, !tp) !t1;  % Error: t1 shares with a_bst
+    use = t1;
     return(v)
 }.
 

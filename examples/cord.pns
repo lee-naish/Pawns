@@ -147,9 +147,10 @@ testcord(l) = {
     c2 = leaf(nil);
     c3=cord_app(c2,l);
     c4=cord_app(c3,l); % precond violation - c3 and l share
-    l1 = cordlist(c4); %  !l!c4 
-    c5 = c4;
     % l1 shares with leaves of c4 and therefore with l
+    % l is an arg so is considered live for whole fn body
+    % l1 = cordlist(c4); %  !l (!c4 not needed since its dead)
+    l1 = cordlist(c4) !l; % if we add !l we need to declare arg l mutable
     return(l1)
 }. % postcond violation
 

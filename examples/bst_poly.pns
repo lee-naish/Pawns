@@ -46,8 +46,9 @@ list_bst(xs) = {
     return(*tp)
 }.
 
-% Dodgey version which could violate type preservation.
+% Dodgey version which could violate type preservation???
 % Error detected during type checking
+% XXX possibly should be but isn't?? clarify
 bug1_list_bst :: ints -> ibst
     sharing list_bst(xs) = xt
     pre xs = abstract
@@ -93,7 +94,8 @@ renaming
     ibst_insert_du = bst_insert_du.
 
 ilist_bst_du :: ints -> (int -> int -> bool) -> ribst -> void
-    sharing ilist_bst_du(xs, !tp) = v
+% sharing ilist_bst_du(xs, !tp) = v % XXX causes grief way down the track
+    sharing ilist_bst_du(xs, leq, !tp) = v
     pre xs = abstract
     post nosharing.
 ibst_insert_du :: int -> (int -> int -> bool) -> ribst -> void
@@ -120,6 +122,8 @@ list_bst_du :: list(T) -> (T -> T -> bool) -> ref(bst(T)) -> void
 list_bst_du(xs, letest, tp) = {
     cases xs of {
     case cons(x, xs1):
+	% need !xs below for polymorphic version, or any instance
+	% where elements are not atomic
         bst_insert_du(x, letest, !tp) !xs1; % xs not updated
         list_bst_du(xs1, letest, !tp) !xs1; % xs not updated
         return

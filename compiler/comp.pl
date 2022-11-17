@@ -213,7 +213,7 @@ comp_fn1(Fn, Arity) :-
     assert(var_number(1000)),
     nfdec_struct(Fn, T),
     % func_arity(Fn, Arity), % delete??
-    fn_def_struct(Fn, Args, Stat),
+    fn_def_struct(Fn, Args, Stat, _VTm),
     smash_type_params(T),
     extract_ret_type(Arity, T, TFArgs, TFR),
     type_c_type('', TFR),
@@ -318,7 +318,7 @@ comp_fn_prototype(Fn) :-
     func_arity(Fn, Arity),
     length(Args1, Arity),
     LHS =.. [Fn|Args1],
-    (   fn_def_struct(Fn, Args, _) ->
+    (   fn_def_struct(Fn, Args, _, _VTm) ->
         map('vp(X,_),X', Args, Args1)
     ;
         (   c_fn_def(LHS, _)

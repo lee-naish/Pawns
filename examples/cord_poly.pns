@@ -20,9 +20,8 @@ cordlist(x) = {
     % XXX hmm, should have a way to get a type params in such places - 
     % currently scope of declaration doesn't include defn, so T here is
     % not the same T as in the declaration and we get an error
-    % (a :: ref(list(T)));
-    (a :: ref(list('_type_param'(1)))); % hack
-    *a = nil;
+    % *a = (nil :: list(T));
+    *a = (nil :: list('_type_param'(1))); % hack
     b = cordlist1(!x, !a);
     return(*a)
 }.
