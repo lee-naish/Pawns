@@ -1,0 +1,11 @@
+% very simple module stuff
+
+export_name f3a.
+export_imp f3b.
+
+f3a:: int -> int.
+f3a(x) = x.
+
+f3b:: int -> int.
+f3b(x) = x.
+

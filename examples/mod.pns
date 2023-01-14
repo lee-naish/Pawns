@@ -1,0 +1,13 @@
+% very simple module stuff
+
+import from mod3.
+import io_needed, print_int from io.
+
+main :: void -> void
+    implicit rw io.
+main(v) = {
+    a = f3a(42);
+    b = f3b(a);
+    !print_int(b)
+}.
+

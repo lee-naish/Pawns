@@ -21,6 +21,11 @@ type string ---> dummy.
 
 % we put a dummy function here with stuff at the end to #include what we
 % need etc (pawns.h includes some other stuff)
+% XXX currently need to import_imp io_needed if we import_imp
+% other functions - nicer to have a less imposing way of
+% adding #includes etc. Could just export/import names instead
+% but the we don't get inlining (not really an issue for IO I
+% guess)
 io_needed :: void -> void.
 io_needed(v) = as_C " {return;}
 #include <stdio.h>

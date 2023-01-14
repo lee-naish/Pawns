@@ -650,8 +650,13 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % type_to_banged(TF, BVs),
     append(FHAs, AllVs, AllVs1),
     sort(AllVs1, Vs1),
-    add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs),
-    smash_type_vars(VTm).  % XX clobber any local type vars just in case...
+    add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs).
+    % Need to keep type vars here because in canonical form, casts
+    % might be moved later than a call to a polymorphic function call
+    % and type instance needs to be propagated backwards to call when we
+    % hit the cast in type analysis, otherwise the pre/post conditions
+    % of the arrow have ref(void) instead of correct type instance
+    % smash_type_vars(VTm).  % XX clobber any local type vars just in case...
     % writeq(Stat), nl.
 
 % from type of defn, extract banged arguments. They are typically in the
@@ -1405,8 +1410,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                             eq_papp(Vl, F, Vs)-[app_bang(F)|Anns],
                             ESs, S)
                     ;
-                        % XX trf to eq_sapp(new, ...); eq_sapp(Vl, % new,...)
-                        writeln('Hyper-saturated applications not yet supported'),
+                        % XX trf to eq_sapp(new, ...); eq_sapp(Vl, new,...)
+                        writeln('Hyper-saturated applications not yet supported'(F)),
                         fail
                     )
                 ; atom(PEr1) ->
@@ -1429,9 +1434,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                         eq_papp(Vl, F, Vs)-Anns,
                         ESs, S)
                 ;
-                    % XX trf to eq_sapp(new, ...); eq_sapp(Vl, %
-                    % new,...)
-                    writeln('Hyper-saturated applications not yet supported'),
+                    % XX trf to eq_sapp(new, ...); eq_sapp(Vl, new,...)
+                    writeln('Hyper-saturated applications not yet supported'(F)),
                     fail
                 )
             % currently we must check this after functions calls since
@@ -1915,25 +1919,23 @@ add_typed_anns(assign(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
     add_typed_anns_veq(assign, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
 add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
     C = var_stat(V),
-    % we once allow var::type "statements" and treated them as declarations
+    % we once allowed var::type "statements" and treated them as declarations
     % before the var is defined
     % Now we allow var = (expr::type) instead
-    % XXX so delete this now???
-    ( fail, member(typed(TV), Ann0) ->
-        ( get_assoc(V, VTm-_DF, _) ->
-            writeln('Error: redeclaration of type for '(V)),
-            write_src(Ann0)
-        ;
-            true
-        ),
-        put_assoc(V, VTm0, TV-def, VTm),
-        Ann = Ann0
-    ;
-        lookup_assoc(V, VTm0, TV-def, VTm),
-        % we add typed_rhs in case this is the last statement and
-        % its converted to returnvar = V
-        Ann = [typed(TV), typed_rhs(TV)|Ann0]
-    ).
+%     ( fail, member(typed(TV), Ann0) ->
+%         ( get_assoc(V, VTm-_DF, _) ->
+%             writeln('Error: redeclaration of type for '(V)),
+%             write_src(Ann0)
+%         ;
+%             true
+%         ),
+%         put_assoc(V, VTm0, TV-def, VTm),
+%         Ann = Ann0
+%     ;
+    lookup_assoc(V, VTm0, TV-def, VTm),
+    % we add typed_rhs in case this is the last statement and
+    % its converted to returnvar = V
+    Ann = [typed(TV), typed_rhs(TV)|Ann0].
 add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
     C = empty_stat, % not needed?
     Ann = Ann0,
@@ -2156,30 +2158,35 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         VTm = VTm1,
         Casts = []
     ; member(typed(TVl0), Ann0) ->  % :: T annotation on RHS
+        xxx(member(typed(TVl0), Ann0)),
         % check TVl0 is lesseq general than Tr
         copy_term(Tr, Trc),
+        ( Trc == Tr -> % worth bothering??
+            Casts = []
+        ;
+            Casts = [Vr]
+        ),
         deannotate_type(Trc, Tr1),
         % subsumes_chk is the name in older versions
         ( subsumes_chk(Tr1, TVl0) ->
             Tr1 = Tl,
-            check_ho_types(Ann0, Vl=Vr, TVl0, Trc)
+            check_ho_types(Ann0, Vl=Vr, TVl0, Trc),
+            % unify Tr with Trc that may share vars with Tr1 and Tl
+            Tr = Trc
         ;
             writeln('Error: type error in var equality/assignment:'(((Vl::TVl), (Vr::TVr)))),
             write_src(Ann0)
         ),
-        ( TVl = TVl0 -> % want instantiation?????
+        % assuming this unification succeeds, it can propagate type
+        % cast (:: TVl0) backwards to where Vr was defined
+        ( TVl = TVl0 -> % want instantiation here
             true
         ;
             writeln('Error: expected ref type for '(Vl, TVl0)),
             write_src(Ann0)
             % XX do something to help carry on here rather than fail?
         ),
-        put_assoc(Vl, VTm1, TVl0-def, VTm),
-        ( Trc == Tr ->
-            Casts = []
-        ;
-            Casts= [Vr]
-        )
+        put_assoc(Vl, VTm1, TVl0-def, VTm)
     ;
         (AEQ = assign -> % := with no prior assignment - dodgey
             writeln('Warning: assigned variable not previously defined '(Vl)),
@@ -2537,7 +2544,13 @@ add_sharing_for_lhs_aliases1(_T, _VTm, _ELVP, _VPC, [], SS, SS).
 add_sharing_for_lhs_aliases1(T, VTm, ELVP, VPC, [AVP|AVPs], SS0, SS) :-
     app_var_path(AVP, VPC, vp(V, EAP)),
     % XXX may need to fold path...
-    get_assoc(V, VTm, VT-_),
+    % Need special case for V=abstract(_) since its not in VTm
+    ( V = abstract(VT0) ->
+    
+        VT = VT0
+    ;
+        get_assoc(V, VTm, VT-_)
+    ),
     fold_type_path(VT, EAP, EAPF),
     EAVPF = vp(V, EAPF),
     mk_alias_pair(ELVP, EAVPF, S),
@@ -4806,14 +4819,60 @@ san('bst_a.pns').
 san('pbst.pns').
 san('p1bst.pns').
 san('bst_poly.pns').
+san('testq.pns').
 san('map.pns').
-san('tmp.pns').
+san('testq.pns').
 
 spy(alias_stat).
 spy(alias_stat_veq).
 
 T = ref(cb), type_struct(T, TS), type_path_sum(TS, [], P, vpef, PInfo).
 alias_fn(find).
+alias_fn(main1).
+
+fdef_fdef_struct1(main1(v), seq(seq(eq_sapp('V0', q_empty, [v])-[],
+eq_var(q, 'V0')-[src(q= (q_empty(v)::queue(int))), typed(pair(list(int),
+ref(list(int))))])-[src(q= (q_empty(v)::queue(int))),
+typed(pair(list(int), ref(list(int))))], seq(eq_dc('V1', void, 0,
+[])-[src(void)], var_stat('V1')-[src(void)])-[src(void)])-[],
+
+fdef_struct(main1, [vp(v, vpe)], seq(seq(
+eq_sapp('V0', q_empty,
+[v])-[ibanged_later([]), last_use([]), used_later(['V0', 'V1', io, v]),
+wo[],
+% XXX ref(void) below
+typed(pair(list(ref(void)), ref(list(ref(void))))),
+typed_rhs(arrow(void, pair(list(ref(void)), ref(list(ref(void)))), [],
+[v], q, nosharing, nosharing, [], [], [], []))],
+eq_var(q, 'V0')-[ibanged_later([]), last_use(['V0']), used_later(['V1', io, v]),
+typed(pair(list(int), ref(list(int)))), typed_rhs(pair(list(int),
+ref(list(int)))), casts(['V0']), src(q= (q_empty(v)::queue(int))),
+typed(pair(list(int), ref(list(int))))])
+-[src(q= (q_empty(v)::queue(int))), typed(pair(list(int), ref(list(int))))],
+
+seq(eq_dc('V1', void, 0, [])-[ibanged_later([]), last_use([]),
+used_later(['V1', io, v]), typed(void), typed_rhs(void), src(void)],
+var_stat('V1')-[last_stat, ibanged_later([]), last_use(['V1']),
+used_later([io, v]), typed(void), typed_rhs(void),
+src(void)])-[src(void)])-[], t(returnvar, (void sharing main1(v)pre
+nosharing post nosharing)-def, <, t('V1', void-def, -, t('V0',
+pair(list(ref(void)), ref(list(ref(void))))-def, -, t, t), t(q,
+pair(list(int), ref(list(int)))-def, -, t, t)), t(v, void-def, -, t,
+t))))
+
+% XXX fails due du '_type_param'(1) vs ref??
+add_sharing_for_lhs_aliases('_type_param'(1), t(b, ref('_type_param'(2))-def, >,
+t(a, ref('_type_param'(1))-def, -, t, t), t(returnvar, void-def, -, t(n,
+'_type_param'(1)-def, -, t, t), t(t, pair('_type_param'(1), '_type_param'(2))-def,
+-, t, t))), vp(a, vpc('_ref', 1, 1, vpe)), [vp(a, vpc('_ref', 1, 1,
+vpc('_type_param', 1, 1, vpe)))], [vp(t, vpc(t2, 2, 1, vpe)),
+vp(abstract('_type_param'(1)), vpe)], [], _G10795).
+add_sharing_for_lhs_aliases1('_type_param'(1), t(b, ref('_type_param'(2))-def, >,
+t(a, ref('_type_param'(1))-def, -, t, t), t(returnvar, void-def, -, t(n,
+'_type_param'(1)-def, -, t, t), t(t, pair('_type_param'(1), '_type_param'(2))-def,
+-, t, t))), vp(a, vpc('_ref', 1, 1, vpc('_type_param', 1, 1, vpe))),
+vpc('_type_param', 1, 1, vpe), [vp(t, vpc(t2, 2, 1, vpe)),
+vp(abstract('_type_param'(1)), vpe)], [], _G10795)
 
 [pawns].
 [pawns,comp].

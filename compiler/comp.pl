@@ -175,31 +175,33 @@ comp_fn(Fn) :-
     func_arity(Fn, Arity),
     functor(LHS, Fn, Arity),
     % XXX avoid func_arity above failing...???
-    ( imported(Fn) ->
-        write('static __inline ')
-    ;
-        true
-    ),
     ( extern_fn(LHS) ->
         true
-    ; c_fn_def(LHS, Def) ->
-        nfdec_struct(Fn, T),
-        smash_type_params(T),
-        extract_ret_type(Arity, T, TFArgs, TFR),
-        type_c_type('', TFR),
-        nl,
-        LHS =.. [Fn|Args],
-        write(Fn),
-        write('('),
-        map2(pair, TFArgs, Args, TPs),
-        params_c_params(TPs),
-        % map0_comma(write, Args1),
-        write(')'),
-        % write(LHS),
-        map0(put, Def),
-        nl, nl
     ;
-        comp_fn1(Fn, Arity)
+        ( imported(Fn) ->
+            write('static __inline ')
+        ;
+            true
+        ),
+        ( c_fn_def(LHS, Def) ->
+            nfdec_struct(Fn, T),
+            smash_type_params(T),
+            extract_ret_type(Arity, T, TFArgs, TFR),
+            type_c_type('', TFR),
+            nl,
+            LHS =.. [Fn|Args],
+            write(Fn),
+            write('('),
+            map2(pair, TFArgs, Args, TPs),
+            params_c_params(TPs),
+            % map0_comma(write, Args1),
+            write(')'),
+            % write(LHS),
+            map0(put, Def),
+            nl, nl
+        ;
+            comp_fn1(Fn, Arity)
+        )
     ).
 
 % as above for fn defined in Pawns
@@ -712,7 +714,8 @@ eq_app_c(Ind, T, Vl, F, Args) :-
 builtin_op('+', plus).
 builtin_op('-', minus).
 builtin_op('*', times).  % need care with overloading
-builtin_op('/', div).
+builtin_op('/', divide).
+builtin_op(mod, mod). % XXX C '%' is not really mod...
 builtin_op('==', eq).
 builtin_op('<=', leq).
 builtin_op(true, 'PAWNS_true'). % avoid overloading with C

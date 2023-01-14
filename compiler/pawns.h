@@ -44,13 +44,24 @@ typedef void (*_func_ptr)(void*);
 
 static intptr_t plus(intptr_t, intptr_t);
 static intptr_t minus(intptr_t, intptr_t);
+static intptr_t times(intptr_t, intptr_t);
+static intptr_t divide(intptr_t, intptr_t);
+static intptr_t mod(intptr_t, intptr_t);
 static PAWNS_bool leq(intptr_t, intptr_t);
-static intptr_t eq(intptr_t, intptr_t);
+static PAWNS_bool eq(intptr_t, intptr_t);
 // static void print_int(intptr_t);
 
 static __inline PAWNS_bool
 leq(intptr_t i, intptr_t j) {
     if(i <= j)
+        return PAWNS_true();
+    else
+        return PAWNS_false();
+}
+
+static __inline PAWNS_bool
+eq(intptr_t i, intptr_t j) {
+    if(i == j)
         return PAWNS_true();
     else
         return PAWNS_false();
@@ -64,6 +75,22 @@ plus(intptr_t i, intptr_t j) {
 static __inline intptr_t
 minus(intptr_t i, intptr_t j) {
     return i-j;
+}
+
+static __inline intptr_t
+times(intptr_t i, intptr_t j) {
+    return i*j;
+}
+
+static __inline intptr_t
+divide(intptr_t i, intptr_t j) {
+    return i/j;
+}
+
+// XXX % is not really mod
+static __inline intptr_t
+mod(intptr_t i, intptr_t j) {
+    return i%j;
 }
 
 // static __inline void

@@ -38,3 +38,13 @@ examples/rectype.pns
 pawns.pl:
 % XXXX Possible BUG if we have a function as an argument and it has two
 % closure arguments that share...
+
+p ../examples/dse
+~/bin/pnsc scope_bug.pns
+...
+    sharing analysis of (q_empty)
+ERROR: Prolog initialisation failed:
+ERROR: assert/1: Cannot represent due to `cyclic_term'
+??? works fine with sim.pns...
+could be from assert in type_struct/2?
+

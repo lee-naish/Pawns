@@ -5,6 +5,7 @@ export_name bst, list_bst.
 % import testimp from 'pns/mod2'.
 % import from 'pns/mod2'.
 import from 'mod2'.
+import print_int from io.
 
 type bst ---> mt ; node(bst, int, bst).
 type ints = list(int).

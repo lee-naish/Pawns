@@ -1,0 +1,130 @@
+% Some utilities for tuples
+
+% Types for tuples (just pair currently built-in)
+%   data constructors are t2, t3, t4,... (no t1 or t0 - could add)
+%   types are tuple2 (= pair), tuple3 (= triple),...
+% Extract arguments/fields
+%   t2_1 returns first arg of a tuple2, t2_2 returns second, etc
+% Assign to arguments/fields
+%   t2_1assign assigns to first arg of a tuple2, etc
+%
+% XXX not all functions are defined yet - need some more copy/paste/edit
+%
+% For extracting arguments of tuples the code here is abstract - no
+% sharing is declared. For use with code where sharing needs to be
+% tracked renaming can be used and the renamed function(s), with more
+% specific types, can have whatever sharing is required (or you can just
+% copy/paste/edit though its more error prone). For the assignment
+% functions, the tuple can't be abstract so sharing must be declared and
+% we have nosharing for all the preconditions (we can't have sharing
+% between tuple args in this polymorphic code because they have different
+% types). If tuples are used where there is sharing, renaming can be used
+% as above.
+
+export_imp
+    tuple2,
+    tuple3,
+    triple,
+    tuple4,
+    quadruple,
+    tuple5,
+    t2_1,
+    t2_2,
+    t2_1assign,
+    t2_2assign,
+    t3_1,
+    t3_2,
+    t3_3.
+
+type tuple2(A, B) = pair(A, B). % added for consistent naming
+
+type tuple3(A, B, C) ---> t3(A, B, C).
+type triple(A, B, C) = tuple3(A, B, C).
+type tuple4(A, B, C, D) ---> t4(A, B, C, D).
+type quadruple(A, B, C, D) = tuple4(A, B, C, D).
+type tuple5(A, B, C, D, E) ---> t5(A, B, C, D, E).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% t2
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+t2_1:: tuple2(A, B) -> A.
+t2_1(t) = {
+    cases t of {
+    case t2(a, b):
+        a
+    }
+}.
+
+t2_1assign:: tuple2(A, B) -> A -> void
+    sharing t2_1assign(!t, n) = v
+    pre nosharing
+    post
+        cases t of {
+        case t2(a, b):
+            n = a
+        }.
+t2_1assign(t, n) = {
+    cases t of {
+    case t2(*a, *b):
+        *!a := n !t
+    }
+}.
+
+t2_2:: tuple2(A, B) -> B.
+t2_2(t) = {
+    cases t of {
+    case t2(a, b):
+        b
+    }
+}.
+
+t2_2assign:: tuple2(A, B) -> B -> void
+    sharing t2_2assign(!t, n) = v
+    pre nosharing
+    post
+        cases t of {
+        case t2(a, b):
+            n = b
+        }.
+t2_2assign(t, n) = {
+    cases t of {
+    case t2(*a, *b):
+        *!b := n !t
+    }
+}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% t3
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+t3_1:: tuple3(A, B, C) -> A.
+t3_1(t) = {
+    cases t of {
+    case t3(a, b, c):
+        a
+    }
+}.
+
+t3_2:: tuple3(A, B, C) -> B.
+t3_2(t) = {
+    cases t of {
+    case t3(a, b, c):
+        b
+    }
+}.
+
+t3_3:: tuple3(A, B, C) -> C.
+t3_3(t) = {
+    cases t of {
+    case t3(a, b, c):
+        c
+    }
+}.
+
+% XXX add t3_1_assign etc
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% add t4 etc
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
