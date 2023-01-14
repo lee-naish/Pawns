@@ -1,6 +1,6 @@
 Pawns: a declarative/imperative language
 (Pointer Assignment Without Nasty Surprises)
-Version: 1.221117
+Version: 1.230114
 Initial development by Lee Naish
 (basicaly a proof of concept for what I think are some neat language
 ideas that tackle a difficult problem in programming language design;
