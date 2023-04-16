@@ -1979,6 +1979,11 @@ add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm) :-
 % arrow types because they may cause unification failure.  However,
 % annotations must be put back in the unified type for later use.
 % XX Its all rather messy and could do with a rethink...
+% XXXX BUG: for polymorphic higher order code we get bogus errors
+% when the type of the call is not instantiated: postcondition has self
+% sharing for type params whereas we expect just sharing for the
+% instance. Why doesn't type/map get instantiated - thats intuitively
+% what we want to do and could avoid this problem.
 add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
     % [Vl|Args] is [LHS var| RHS vars in args of fn]
     % [TFR|TFArgs] is expected types of above from F
@@ -2041,7 +2046,11 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         % TFc = TF,
         % TFArgsc = TFArgs
     ),
-    map(check_ho_types(Ann0, Vl-F-Args), TFArgs, TCurrsc),
+    % TFArgs has uninstantiated HO type, TCurrsc has instantiated HO
+    % type (-> problem); TFArgsc1 has instantiated type (has been
+    % unified but annotations not checked)
+    % map(check_ho_types(Ann0, Vl-F-Args), TFArgs, TCurrsc), % XXX
+    map(check_ho_types(Ann0, Vl-F-Args), TFArgsc1, TCurrsc),
     % we add annotations for both the fn app and dc cases - could merge?
     % typed_dc() no longer used...
     % Ann = [typed(TVl), typed_rhs(TFc), typed_dc(TCurrsc)|Ann0].
@@ -4746,26 +4755,6 @@ sa(ts = cons(rnode(2, cons(rnode(3,nil),nil)),nil)).
 sa(t = rnode(2, cons(rnode(3,nil),nil))).
 sa(t = rnode(2, nil);ts = cons(t, nil)).
 
-
-san('testuf.pns').
-san('eval.pns').
-san('wam.pns').
-san('isort.pns').
-san('bst_poly.pns').
-san('bst1.pns').
-san('cord.pns').
-san('cord_poly.pns').
-san('ho.pns').
-san('imp.pns').
-san('bst.pns').
-san('bst_a.pns').
-san('test.pns').
-san('tmp.pns').
-san('pbst.pns').
-san('p1bst.pns').
-san('bst_poly.pns').
-san('map.pns').
-
 spy(alias_stat).
 spy(in_as).
 spy(xxx).
@@ -4873,6 +4862,11 @@ t(a, ref('_type_param'(1))-def, -, t, t), t(returnvar, void-def, -, t(n,
 -, t, t))), vp(a, vpc('_ref', 1, 1, vpc('_type_param', 1, 1, vpe))),
 vpc('_type_param', 1, 1, vpe), [vp(t, vpc(t2, 2, 1, vpe)),
 vp(abstract('_type_param'(1)), vpe)], [], _G10795)
+
+XXXX
+san('bst.pns').
+spy(add_typed_anns_dcapp).
+sa(xs = cons(1,nil); *tp = mt; foldl_du(xs,bst_insert_du,!tp)).
 
 [pawns].
 [pawns,comp].

@@ -48,3 +48,7 @@ ERROR: assert/1: Cannot represent due to `cyclic_term'
 ??? works fine with sim.pns...
 could be from assert in type_struct/2?
 
+impure function calls in expression - ! gets lost in trf
+eg ../examples/dse/sim.pns
+numitems = !random_num(void) mod 23 + 1;
+

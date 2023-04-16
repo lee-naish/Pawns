@@ -29,6 +29,7 @@ list_bst :: ints -> bst.
 list_bst(xs) = {
     *tp = mt;
     list_bst_du(xs, !tp);
+    % list_bst_du_ho(xs, !tp);
     return(*tp)
 }.
 
@@ -164,3 +165,72 @@ print_ints(t) = {
         !print_ints(r)
     }
 }.
+
+% HO version of list_bst_du
+% (non-du version could use foldl)
+
+% destructively add list of ints to tree we have ptr to
+list_bst_du_ho :: ints -> rbst -> void
+    sharing list_bst_du_ho(xs, !tp) = v
+    pre xs = abstract
+    post nosharing.
+% list_bst_du_ho(xs, tp) = int_rbst_foldl_du(xs, bst_insert_du, !tp).
+list_bst_du_ho(xs, tp) = foldl_du(xs, bst_insert_du, !tp).
+% XXX incompatible postcond above (ho type checking???)
+% 'Error: incompatible postcondition for
+% '('V0'-foldl_du-[xs,'V1',tp])
+% '  type is  '(int -> ref(bst) -> void sharing f(x,tp)=v pre
+% nosharing post nosharing' !'([tp])' imp'([],[],[])'
+% cl'([int]))
+% '  expected '(_G3275 -> _G3301 -> void sharing f(x,tp)=v pre
+% nosharing post nosharing' !'([tp])' imp'([],[],[])'
+% cl'([_G3275]))
+%   source: foldl_du(xs,bst_insert_du,!tp)
+
+
+
+% name type sig for bst_insert_du
+type fn_i_rbst_du = (int -> rbst -> void
+    sharing f(x, !tp) = v
+    pre nosharing
+    post nosharing).
+
+% traverses like foldl but just returns void and uses du
+% (same as list_bst_du but fn passed in)
+int_rbst_foldl_du :: ints -> fn_i_rbst_du -> rbst -> void
+    sharing int_rbst_foldl_du(xs, f, !tp)=voidvar
+    pre xs = abstract
+    post nosharing.
+int_rbst_foldl_du(xs, f, tp) = {
+    cases xs of {
+    case nil:
+        return
+    case cons(x, xs1):
+        f(x, !tp);
+        int_rbst_foldl_du(xs1, f, !tp)
+    }
+}.
+
+% Polymorphic and higher order:
+
+% name type sig for foldl_du arg - second arg of fn is updated
+type fn_foldl_du(A, B) = (A -> B -> void
+    sharing f(x, !tp) = v
+    pre nosharing
+    post nosharing).
+
+% traverses like foldl but just returns void and uses du
+foldl_du :: list(A) -> fn_foldl_du(A, B) -> B -> void
+    sharing foldl_du(xs, f, !tp)=voidvar
+    pre xs = abstract
+    post nosharing.
+foldl_du(xs, f, tp) = {
+    cases xs of {
+    case nil:
+        return
+    case cons(x, xs1):
+        f(x, !tp);
+        foldl_du(xs1, f, !tp)
+    }
+}.
+
