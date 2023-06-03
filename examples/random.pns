@@ -1,0 +1,44 @@
+% Purely functional random number interface to C random() in Pawns
+
+% Uses a Pawns state variable, random_state, to store state.
+% init_random(seed) does memory allocation, calls C initstate() and
+% initialises random_state
+% random_num(void) calls C setstate() (with *random_state) and random()
+% and returns the next random number in the sequence.
+% 
+% Note they behave like pure functions because state variables are saved
+% and restored appropriately (so a sub-computation may have a separate
+% use of random numbers that won't interfere with the sequence of random
+% numbers returned), though the threading of state is done implicitly. 
+
+export_name
+    state_t,
+    random_state,
+    init_random,
+    random_num.
+
+type state_t ---> dummy. % we cast to char *
+
+!random_state:: ref(state_t).
+
+% initialises random_state using C initstate()
+init_random :: int -> void
+    implicit wo random_state.
+init_random(seed) = as_C " {
+    unsigned useed = seed;
+    size_t state_size = 256;
+    char *state = ADT_MALLOC(state_size);
+    *random_state = (state_t) state;
+    initstate(seed, state, state_size);
+    return;
+}".
+
+% returns random number using C random(),
+% after setting the state to random_state
+random_num :: void -> int
+    implicit rw random_state.
+random_num(v) = as_C " {
+    char *old_state = setstate((char *) *random_state);
+    return (intptr_t)random();
+}".
+

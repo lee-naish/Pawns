@@ -25,7 +25,10 @@ test1(ip) = {
     *itdef = 42; % XXX ill-typed
     *isdef = 42;
     jp = isdef;
-    putchar(!getchar(void)); % XXX ! missing on putchar
+    io1 = io;
+    putchar(!getchar(void)) !io1; % XXX ! missing on putchar
+    *!io := io1 !io1; % can say *io is a pointer (but can't deref it)
+    dummy = io1;
     jp
 }.
 
@@ -43,6 +46,7 @@ test2(ip) = {
     !test4(!i); % precond allows sharing with isdef
     !test3(!i); % XX precond violation
     !test3(!isdef);   % !i %  isdef shared with i XX
+    k = sharewithsv(!i) !isdef; 
     dummy = i;
     ip
 }.
@@ -64,6 +68,55 @@ test4 :: ref(int) -> void
 test4(ip) = {
     *!ip := 42; void
 }. % !isdef % XX
+
+
+% if an argument shares with a sv of a function where the function doesn't
+% have the sv as an implicit argument but a subcomputation uses it we have a
+% problem! A solution (most flexible one?) is to say that if an arg of a
+% function shares with a sv the sv must be an implicit arg of the function
+% also.
+sharewithsv:: ref(int) -> int
+    sharing sharewithsv(!ip) = i
+    pre nosharing
+    post nosharing.
+sharewithsv(ip) = {
+    *!ip := 45;   % smashes *isdef if ip aliases it
+    !init_isdef(void); % smashes *ip if it aliases isdef
+    *ip          % returns 42 if ip aliases isdef
+}.
+
+ret_sv:: void -> ref(int)
+    sharing ret_sv(v) = ip
+    pre nosharing
+    post nosharing.
+ret_sv(v) = {
+    !init_isdef(void); % *isdef = 40
+    ip = isdef;
+    ip
+    % scope of isdef ends but alias escapes XXX
+}.
+
+ret_sv_val:: void -> ref(int)
+    sharing ret_sv(v) = ip
+    pre nosharing
+    post nosharing.
+ret_sv_val(v) = {
+    !init_isdef(void); % *isdef = 40
+    *ip = *isdef;      % ip points to new mem cell containing 40
+    ip
+    % returns same val as ret_sv but without sv alias
+    % - safe, even if *isdef was not atomic
+}.
+
+sv_alias2:: void -> int
+    sharing sv_alias2(v) = i
+    pre nosharing
+    post nosharing.
+sv_alias2(v) = {
+   ip = ret_sv(void);
+   sharewithsv(!ip); % not clear ip aliases isdef because its not in scope
+   *ip
+}.
 
 % Convert a function which doesn't have an implicit io parameter
 % to an equivalent one which does (but its not used, of course)
@@ -118,7 +171,7 @@ init_isdef :: void -> void
     pre nosharing
     post nosharing.
 init_isdef(v) = {
-    *isdef = 42
+    *isdef = 40
 }.
 
 % fn which introduces state var locally and return value shares with it

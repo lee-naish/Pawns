@@ -48,7 +48,6 @@ list_bst(xs) = {
 
 % Dodgey version which could violate type preservation???
 % Error detected during type checking
-% XXX possibly should be but isn't?? clarify
 bug1_list_bst :: ints -> ibst
     sharing list_bst(xs) = xt
     pre xs = abstract

@@ -2011,7 +2011,7 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         writeln('ERROR: type error in arguments of application:'(E, TPCurrs, TFArgs)),
         write_src(Ann0),
         smash_type_vars(TFArgs) % proceed with some default type
-        ,writeln(TFArgs)
+        ,writeln(TFArgs)    % XXX???
     ),
     ( get_assoc(Vl, VTm1, TVl-_DF) -> 
         % we check if its a pre/postcondition using dynamic flag
@@ -3698,6 +3698,7 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     % Note numbering of closure args - Arg2 will become CLA1 of the
     % result
     RType = arrow(_, _, _, _, _, _, _, CLATs, ROIs, RWIs, WOIs),
+    append(ROIs, RWIs, RORWIs),
     map('X,vp(X,vpe)', ROIs, ROVPs),
     map('X,vp(X,vpe)', RWIs, RWVPs),
     map('X,vp(X,vpe)', WOIs, WOVPs),
@@ -3734,15 +3735,31 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     (   member(S, SS0),
         S = s(SVP1, SVP2),
         SVP1 \= SVP2, % ignore self-sharing
-        pair_in_var_list(S, AllVPs), % note result of fn can't be in precond
-        AbsType \== void, % ignore bogus sharing with abstract(void)
-        % we generalise abstract so any type/path can match
-        gen_abstract(SVP1, SVP3),
-        gen_abstract(SVP2, SVP4),
-        \+ member(s(SVP3, SVP4), PreSS1),
-        print('Error: precondition violation:'(app(Fn, AVPs), S)),
-        nl,
-        write_src(Ann),
+        SVP1 = vp(V1, P1),
+        SVP2 = vp(V2, P2),
+        % check if both vars in sharing pair are relevant to call
+        % or one is relevant and it aliases a state var that is not in
+        % the call
+        ( member(vp(V1, _), AllVPs) -> % V1 relevant to call
+            ( member(vp(V2, _), AllVPs) -> % V2 relevant to call
+                AbsType \== void, % ignore bogus sharing with abstract(void)
+                % we generalise abstract so any type/path can match
+                gen_abstract(SVP1, SVP3),
+                gen_abstract(SVP2, SVP4),
+                \+ member(s(SVP3, SVP4), PreSS1),
+                print('Error: precondition violation:'(app(Fn, AVPs), S)),
+                nl,
+                write_src(Ann)
+            ; aliased_sv(V2, P2) ->
+            \+ member(V1, RORWIs),
+                writeln('Error: aliased state var must be implicit rw/ro:'(Fn, V2, V1))
+            )
+        ;
+            aliased_sv(V1, P1),
+            member(vp(V2, _), AllVPs),
+            \+ member(V2, RORWIs),
+            writeln('Error: aliased state var must be implicit rw/ro:'(Fn, V1, V2))
+        ),
         fail
     ;
         true
@@ -3767,6 +3784,13 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     append(WOSSs, WOSS),
     sort(WOSS, WOSS1),
     ord_union(SSN1, WOSS1, SSN).
+
+% var is a state var and path has just a single ref
+aliased_sv(V, vpc('_ref', 1, 1, vpe)) :-
+    mutable_global(V).
+
+% path with just ref
+ref_path(vpc('_ref', 1, 1, vpe)).
 
 % generalise var paths for abstract so any type/path can match
 gen_abstract(vp(V, P), vp(V1, P1)) :-
@@ -4298,17 +4322,17 @@ alias_fn(Fn) :-
         % need to check for sharing between args+result which is not
         % declared in postcondition
         % also need to check for state vars which are introduced locally by
-        % calling a WO function sharing with args+result; currently we
+        % calling a WO function aliasing with args+result; currently we
         % over-approximate by considering all state vars which are not
-        % implicitly returned XXX NQR if we have local var with the same
-        % name (should warn against this?)
+        % implicitly returned XXXXXX NQR if we have local var with the same
+        % name (should ban/warn about this! Also affects alias_stat_app)
         findall(SV, (mutable_global(SV),
                     \+ member(SV, RFAs1)
                     ), SVs),
         member(S, SS),
         S = s(VP1, VP2),
-        VP1 = vp(V1, _),
-        VP2 = vp(V2, _),
+        VP1 = vp(V1, P1),
+        VP2 = vp(V2, P2),
         V1 \= V2,   % XX ignore self aliasing - should include later?
         ( memberchk(vp(V1, _), ResArgs1) ->
             ( memberchk(vp(V2, _), ResArgs1) ->
@@ -4316,20 +4340,18 @@ alias_fn(Fn) :-
                 print('Error: postcondition violated:'(Fn, VP1, VP2)),
                 nl
             ;
-                % Could be safe to allow result to share with strict components
-                % of a state var, but not top level _ref (which the thing saved and
-                % restored in encapsulated sub-computations that use the state var)
                 memberchk(V2, SVs),
-                print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
+                ref_path(P2),
+                % best remove trailing ref from path etc
+                print('Error: illegal post-alias with state variable:'(Fn, VP1, VP2)),
                 nl
             )
         ;
-            % Could be safe to allow result to share with strict components
-            % of a state var, but not top level _ref (which the thing saved and
-            % restored in encapsulated sub-computations that use the state var)
             memberchk(vp(V2, _), ResArgs1),
             memberchk(V1, SVs),
-            print('Error: illegal post-sharing with state variable:'(Fn, VP1, VP2)),
+            ref_path(P1),
+            % best remove trailing ref from path etc
+            print('Error: illegal post-alias with state variable:'(Fn, VP2, VP1)),
             nl
         )
     ;
@@ -4591,7 +4613,7 @@ lookup_old_assoc(Key, Assoc, Value, NewAssoc) :-
         ( (DF = def ; checking_pre_post) ->
             true
         ;
-            writeln(Assoc),
+            % writeln(Assoc),
             writeln('Error: possibly undefined variable '(Key))
         )
     ;
@@ -4811,6 +4833,7 @@ san('bst_poly.pns').
 san('testq.pns').
 san('map.pns').
 san('testq.pns').
+san('state.pns').
 
 spy(alias_stat).
 spy(alias_stat_veq).

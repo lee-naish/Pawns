@@ -40,7 +40,8 @@ cordlist(x) = {
 cordlist1 :: cb -> rbs -> rbs
     sharing cordlist1(!x,!p)=p1
     pre x=leaf(*p)
-    post (x=leaf(*p); p1=p).
+    post p1=p. % postcond declared *additional* sharing
+    % post (x=leaf(*p); p1=p).
 cordlist1(x, p) = {
     cases x of {
 %     case empty:

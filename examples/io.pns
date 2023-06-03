@@ -90,7 +90,7 @@ print_string(i) = as_C "{
 put_char :: int -> void
 	implicit rw io.
 put_char(i) = as_C "{
-    putchar(i);
+    putchar((int) i);
 }".
 
 get_char :: void -> int
