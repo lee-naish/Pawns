@@ -83,6 +83,9 @@ lastp :: rbs -> rbs
     sharing lastp(q)=r
     pre nosharing
     post r=q.
+    % following should be more precise???
+    % post *r=nil; q=cons(true,*r). % XXX sharing analysis of (cordlist1) alias_stat failed :-(
+    % post *r=nil; q=cons(42,*r). % XXX loop compiling after error msg?
 lastp(q) = {
     q1 = *q;
     cases q1 of {

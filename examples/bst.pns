@@ -132,6 +132,8 @@ bst_sum1(t) = {
     }
 }.
 
+% XXXXX add code to return nuber of nodes, sum (and sum of squares)
+
 % print all elements of tree (inorder, no indentation etc to show tree
 % structure).
 print_tree :: bst -> void
