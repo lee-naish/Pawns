@@ -24,26 +24,34 @@ moreprecise, meaning you can write correct code that passes the compiler
 even though the analysis in the paper would result in error messages.
 The paper may be updated to reflect this at some point.
 
-The system is also not packaged well currently and my development machine
-(a laptop running Ubuntu) has rather old hardware and software. If you
-can't get it to work on your chosen platform I'll gladly return your money
-but I can't return your time:(
+The system is also not packaged well currently. My development machine
+is laptop running Ubuntu. I've not ported it elsewhere but after doing
+several years worth of upgrades it still built with no problems so the
+Ubuntu build seems to be on solid foundations.  If you can't get it to
+work on your chosen platform I'll gladly return your money but I can't
+return your time:(
 
 It needs
 
 1) SWI-Prolog:
-sudo apt-get install swi-prolog-nox
+See https://www.swi-prolog.org/build/unix.html, eg
+sudo apt-get install software-properties-common
+sudo apt-add-repository ppa:swi-prolog/stable
+sudo apt-get update
+sudo apt-get install swi-prolog
 
 2) Boehm++ garbage collector:
 sudo apt-get install libgc-dev
 
-3) adtpp/adt4c tool installed in ~/bin/adtpp:
+3) adtpp tool installed in ~/bin/adtpp (this is in a public git
+repository and requires flex, yacc and gcc):
 sudo apt-get install git
-git clone https://github.com/cjack/Adt4c
-cd Adt4c/src
+git clone https://github.com/lee-naish/adtpp
+sudo apt install flex
+sudo apt install bison
+mkdir ~/bin
+cd adtpp/src
 make install
-(a more up to date version is at
-https://bitbucket.org/Macnaa/adt4c-with-polymorphism.git)
 
 4) pawns.h in current dir
 
@@ -53,7 +61,13 @@ https://bitbucket.org/Macnaa/adt4c-with-polymorphism.git)
 
 We currently have
 
-compiler: source for compiler
+compiler: source for compiler, pnsc
+"pnsc foo.pns" will compile foo.pns to foo.c and foo.adt (algebraic data
+type definitions that adtpp will convert to C). See examples/makefile
+for make convenient rules etc
+To install the compiler in ~/bin, use:
+cd compiler/
+make install
 
 examples: example Pawns code (with makefile and other files needed etc)
 
