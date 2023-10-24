@@ -1,24 +1,23 @@
-# Pawns
+# Pawns, version VERSION
 
 Pawns (Pointer Assignment Without Nasty Surprises) is a
 declarative/imperative language. It supports typical features of a strict
 functional language such as algebraic data types, polymorphism, higher
 order programming and pure (referentially transparent) functions. It also
 supports imperative features such as destructive update via pointers and
-global variables (including IO).  Unlike other declarative/imperative
+a form of global variables (including IO).  Unlike other declarative/imperative
 languages, all data constructor arguments can have pointers to them and
 be updated, all side-effects in the code are made obvious by annotations
-and such impure code can be encapsulated inside a pure function. The
+and impure code can be encapsulated inside a pure function. The
 compiler checks annotations and purity by analysis of data structure
-sharing and where functions may update their arguments, additional
-declarations concerning update and sharing are required.
+sharing. Functions that may update their arguments have additional
+declarations concerning update and sharing.
 
-This is
-Version: 1.230114
-developed by Lee Naish
-(basicaly a proof of concept for what I think are some neat language
-ideas that tackle a difficult problem in programming language design;
-definitely not a polished product).
+Language and implementation by
+[Lee Naish](https://lee-naish.github.io/).
+It's basicaly a proof of concept for what I think are some neat language
+ideas that tackle a difficult problem in programming language design - 
+definitely not a polished product!
 
 # Pawns home page
 Since 2022 the home page has been https://lee-naish.github.io/src/pawns/

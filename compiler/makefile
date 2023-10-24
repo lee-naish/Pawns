@@ -27,8 +27,12 @@ builtin.h: builtin.adt
 
 README.md : README.md.src makefile
 	sed s/VERSION/$(VERSION)/ < README.md.src > README.md
-	echo "You might want to: cp README.md ../"
 
+.PHONY: ..README
+..README: README.md
+	cp README.md ..
+
+.PHONY: clean
 clean:
 	rm -rf pnsc tmp* Readme..
 
