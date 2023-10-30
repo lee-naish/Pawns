@@ -5,10 +5,12 @@ declarative/imperative language. It supports typical features of a strict
 functional language such as algebraic data types, polymorphism, higher
 order programming and pure (referentially transparent) functions. It also
 supports imperative features such as destructive update via pointers and
-a form of global variables (including IO).  Unlike other declarative/imperative
-languages, all data constructor arguments can have pointers to them and
-be updated, all side-effects in the code are made obvious by annotations
-and impure code can be encapsulated inside a pure function. The
+a form of global variables (used for IO).  Unlike other declarative/imperative
+languages, arguments of all data constructors be updated (you don't need
+special types) and all side-effects in the code are made obvious by
+annotations.  Also, impure code can be encapsulated inside a pure function,
+allowing a pure function to return a data structure that has been
+constructed using destructive update. The
 compiler checks annotations and purity by analysis of data structure
 sharing. Functions that may update their arguments have additional
 declarations concerning update and sharing.
