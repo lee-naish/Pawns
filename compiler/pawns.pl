@@ -961,6 +961,7 @@ builtin_tdef(bool, [dcons(false, []), dcons(true, [])]).
 builtin_tdef(ref(T), [dcons('_ref', [T])]).
 builtin_tdef(list(T), [dcons(nil, []), dcons(cons, [T, list(T)])]).
 builtin_tdef(maybe(T), [dcons(nothing, []), dcons(just, [T])]).
+builtin_tdef(either(T1,T2), [dcons(left, [T1]), dcons(right, [T2])]).
 builtin_tdef(pair(T1,T2), [dcons(t2, [T1, T2])]). % XX tuple naming?
 builtin_tdef('_type_param'(_T), [dcons('_type_param', [void])]).
 % we have a _closure type for runtime representation of closures
@@ -2396,11 +2397,12 @@ dc_type(DC, Arity, TDC, TArgs) :-
 % 
 % Note also that at the top level we can't have sum_ref_anc(i) (i>=2 generally
 % so these nodes must be lower in the tree).  This isn't encoded in the
-% type.  Also not encoded is the constraint that "sum" node children of
-% types defined with sum/2 must be defined by either ref or sum_ref_anc nodes
-% (the arguments of "normal" data constructors must be refs; we
-% also allow refs to refs to refs etc, which doesn't correspond so
-% directly to a traditional ADT).
+% type.  Also not encoded is the constraint that the list of children of
+% prod nodes must all be defined by either sum_ref or sum_ref_anc
+% (the arguments of "normal" data constructors must be refs).  We
+% also allow refs to refs to refs etc (the child of sum_ref can be
+% sum_ref or sum_ref_anc), which doesn't correspond so
+% directly to a traditional ADT.
 % 
 % Example from wam.pns (contains mutual recursion):
 % type fs ---> f0 ; f1 ; f2.
@@ -3033,10 +3035,37 @@ type_var_paths(T, V, VPs) :-
 
 mk_vp(X,P,vp(X,P)).
 
-% return all paths which may share corresponding to a type
+% return all paths which may share corresponding to a (canonical) type
 % YY might be worth caching this
-% New version without extra refs in path and without empty paths
-% See comments in older version for now
+% New version without extra (implicit) refs in path and without empty paths.
+% We recurse down different branches of the type, returning each path to
+% a ref/1, but stop when there is an ancestor with the same type.
+% Although type_struct can have sum_anc nodes referring back to the root
+% of the tree, empty paths are avoided. This makes the sharing domain a
+% little larger but makes sharing more precise.  Importantly, it allows
+% the programming pattern *xp = x1; *!xp := x2; *!xp := x3 without bogus
+% sharing of x1, x2 an x3, even if they have recurive types such as
+% list(t) (previous version had sharing due to the empty path being used
+% for such types).
+% Examples:
+% from rectype.pns:
+% (note difference from sharing paper in rtree example)
+% ?- type_paths(maybe(maybe(either(int, int))), Ps).
+% Ps = [.just, .just.just, .just.just.left, .just.just.right].
+% ?- type_paths(maybe(maybe(either(int, ref(int)))), Ps). % explicit ref
+% Ps = [.just, .just.just, .just.just.left, .just.just.right, .just.just.right._ref].
+% ?- type_paths(rtree, Ps). % recursion via list(rtree)
+% Ps = [.rnode/2.1, .rnode/2.2, .rnode/2.2.cons/2.1, .rnode/2.2.cons/2.2].
+% ?- type_paths(list(rtree), Ps).
+% Ps = [.cons/2.1, .cons/2.1.rnode/2.1, .cons/2.1.rnode/2.2, .cons/2.2].
+% ?- type_paths(r1r, Ps). % recursion via ref(r1r)
+% Ps = [.r1rc, .r1rc._ref].
+% ?- type_paths(r1rr, Ps). % recursion via ref(ref(r1rr))
+% Ps = [.r1rrc, .r1rrc._ref, .r1rrc._ref._ref].
+% ?- type_paths(ref(r1rr), Ps).
+% Ps = [._ref, ._ref.r1rrc, ._ref.r1rrc._ref].
+% ?- type_paths(ref(ref(r1rr)), Ps).
+% Ps = [._ref, ._ref._ref, ._ref._ref.r1rrc].
 type_paths(T, Ps) :-
     type_struct(T, TS),
     ( setof(P, PInfo^type_path_sum(TS, [], P, vpef, PInfo), Ps) ->
