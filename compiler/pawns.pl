@@ -118,6 +118,7 @@ input_file(File) :-
     retractall(func_arity(_, _)),
     retractall(fdef_struct(_, _, _, _)),
     retractall(nfdec_struct(_, _)),
+    retractall(nfdec_struct_inferred_post(_, _)),
     retractall(type_struct_c(_, _)),
     retractall(teqdef(_, _)),
     retractall(tdef(_, _)),
@@ -152,7 +153,22 @@ input_file(File) :-
             member((Fn :: ST), As)
         ),
         fdec_fdec_struct(Fn, ST, Fn1, T),
-        assert(nfdec_struct(Fn1, T)),
+        % inferred postconditions are set aside for processing below
+        (has_inferred_post(T) ->
+            assert(nfdec_struct_inferred_post(Fn1, T))
+        ;
+            assert(nfdec_struct(Fn1, T))
+        ),
+        fail
+    ;
+        % replace "inferred" postconditions with function bodies
+        nfdec_struct_inferred_post(Fn, T),
+        ( member(fdef(PFH, PFB), As), functor(PFH, Fn, _) ->
+            rename_inferred_postcond(T, PFH, PFB, T1),
+            assert(nfdec_struct(Fn, T1))
+        ;
+            fail
+        );
         fail
     ;
         % function definitions - assert arity
@@ -536,7 +552,8 @@ find_and_rename(FDefs, AllRPs, _-OF, RFdef) :-
         RFdef = fdef(dummy_renamed_function(v), v)
     ).
 
-% replace function symbols in term
+% replace function symbols in term using list of new-old pairs
+% (pair order potentially counterintuitive)
 rename_term(RPs, T0, T) :-
     functor(T0, F, N),
     (member(RF-F, RPs) ->
@@ -559,6 +576,47 @@ rename_term_args(RPs, N, T0, T) :-
         rename_term_args(RPs, N1, T0, T)
     ).
 
+% test if declared postcond of fn is "inferred"
+% XXX NQR - should really check for inferred in Nth arrow, where there
+% are N explicit arguments in the function definition. There really
+% shouldn't be inferred anywhere else.
+has_inferred_post(T) :-
+    T = arrow(_, R, _, _, _, _, Post, _, _, _, _),
+    ( var(Post) -> % needed for closure+apply hack with vars
+        fail
+    ; Post = inferred ->
+        true
+    ;
+        has_inferred_post(R)
+    ).
+
+% replace inferred by renamed fn body
+% XXX NQR, as above - we just replace the first inferred we see
+replace_inferred(T0, FB, T) :-
+    T0 = arrow(X1, R0, X2, X3, X4, X5, Post, X6, X7, X8, X9),
+    ( Post = inferred -> 
+        T = arrow(X1, R0, X2, X3, X4, X5, FB, X6, X7, X8, X9)
+    ;
+        T = arrow(X1, R, X2, X3, X4, X5, Post, X6, X7, X8, X9),
+        replace_inferred(R0, FB, R)
+    ).
+
+% take type signature with "inferred" as postcondition and replace it
+% with body of function definition, renamed so formal params of function
+% are replaced by formal params in type definition; also need to
+% replace return by assignment to result variable
+rename_inferred_postcond(T0, FH, FB, T) :-
+    FH =.. [_|FArgs],
+    T0 = arrow(_, _, _, TArgs, TRes, _, _, _, _, _, _),
+    map2(pair, TArgs, FArgs, Renames),
+    % XXX we need to introduce var TRes into the postcondition code.
+    % If that var name is used already it needs to be renamed, so we
+    % pick a name that nobody would ever use... (yeah, right)
+    %  Hey, we could always make renamedXYZZY a reserved word in the
+    %  language definition
+    rename_term([renamedXYZZY-TRes|Renames], FB, FB1),
+    pstat_fix_return(FB1, TRes, FB2),
+    replace_inferred(T0, FB2, T).
 
 % convert term as read from input (external prolog syntax) to internal
 % representation (abstract syntax tree) - fn defs
@@ -1222,6 +1280,52 @@ pfdef_fdef(CFH, CFB, FH, FB) :-
         pstat_stat(void, FB) % -> spurious errors but better than loop
     ).
 
+% change function body so it assigns result to a var rather than
+% implicit or explicit return, for inferred postconditions
+% (XXX may not cover all cases, possibly should have done this
+% processing after conversion to internal syntax, but here we are...)
+% If we have a sequence of statements we leave them all untouched except
+% the last. Based on pstat_stat code
+pstat_fix_return(PS0, TRes, PS) :-
+    ( var(PS0) ->
+        % XX something major is wrong 
+        writeln('ERROR: Prolog var encountered'),
+        PS = (TRes = foobar)
+    ; PS0 = (if C then A else B) ->
+        pstat_fix_return((cases C of {case true: A case false: B}), TRes, PS)
+    ; PS0 = (if C then A) ->
+        pstat_fix_return((if C then A else void), TRes, PS)
+    ; PS0 = {PS1} ->
+        pstat_fix_return(PS1, TRes, PS)
+    ; PS0 = (PS1 ; PS2) ->
+        pstat_fix_return(PS2, TRes, PS3),
+        PS = (PS1 ; PS3)
+    % XXX explicit type info can now be attached to RHS, eg
+    % *tp = (mt :: bst(int)) (need to clean up this old stuff?)
+    % Leave so return expression can be cast
+    ; PS0 = (PS1 :: T) -> % XX rethink explicit type decs?
+        PS = (TRes = (PS1 :: T))
+    ; PS0 = (_PE1 := _PE2) ->
+        % XXX maybe we should traverse the whole of PS0 looking for
+        % things we don't want in inferred postconditions
+        writeln('ERROR: impure code not allowed in inferred postconditions'),
+        PS = (TRes = void)
+    ; PS0 = (PE1 = PE2) ->
+        PS = (PE1 = PE2; TRes = void)
+    ; PS0 = (_PS1 ! _V) ->
+        writeln('ERROR: impure code not allowed in inferred postconditions'),
+        PS = (TRes = void)
+    ; PS0 = (cases PE of PCd) ->
+        pcases_fix_return(PCd, TRes, PCd1),
+        PS = (cases PE of PCd1)
+    ; PS0 = return(PE1) ->
+        PS = (TRes = PE1)
+    ; PS0 = return ->
+        PS = (TRes = void)
+    ; % var or procedure call (better be the former!)
+        PS = (TRes = PS0)
+    ).
+
 % statement -> abstract core syntax
 % Nested expressions etc are flattened to get a bunch of statements for
 % each simple src statement.  Indirect !annotations (those at the end of
@@ -1626,6 +1730,22 @@ combine_stats(S1, S2, C-Anns) :-
         C = C1
     ;
         C = seq(S1, S2)
+    ).
+
+% like pstat_fix_return for case branches
+% based on pcases_cases (var names confusing)
+pcases_fix_return({CPCd}, Cs) :-
+    pcases_fix_return(CPCd, Cs).
+pcases_fix_return((case PCd), (case Cs)) :-
+    pcases_fix_return1(PCd, Cs).
+
+pcases_fix_return1(PCd, Cs) :-
+    (PCd = ((PE:PS0) case PCd1) ->
+        pstat_fix_return(PS0, PS),
+        Cs = ((PE:PS) case Cs1),
+        pcases_fix_return1(PCd1, Cs1)
+    ;
+        pcases_fix_return(PCd, Cs)
     ).
 
 % cases -> abstract syntax
@@ -2446,11 +2566,17 @@ dc_type(DC, Arity, TDC, TArgs) :-
 % For arrow types we just pass them though and convert them to
 % sharing representation later (possibly multiple times, so we can
 % handle multiple instances of higher order functions) XX
-type_struct(T, S) :-
-    ( var(T) ->
-        writeln('ERROR: type_struct called with variable'),
-        type_struct(ref(void), S)
-    ; T = arrow(_, _, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs) ->
+%
+% This can be called with non-gound types, such as list(list(_)), which
+% previously caused problems; we now replace type vars with ref(void) in
+% the struct created (XXX should test with tricky polymorphic code more)
+type_struct(T0, S) :-
+    ( ground(T0) ->
+        T = T0
+    ;
+        replace_vars(ref(void), T0, T)
+    ),
+    ( T = arrow(_, _, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs) ->
         S = T
     ; type_struct_c(T, S1) ->
         S = S1
@@ -2462,6 +2588,16 @@ type_struct(T, S) :-
     ).
 
 :- dynamic(type_struct_c/2).
+
+% copy T0 to T, replacing any vars with R
+replace_vars(R, T0, T) :-
+    ( var(T0) ->
+        T = R
+    ;
+        T0 =.. [F|Args0],
+        map(replace_vars(R), Args0, Args),
+        T =.. [F|Args]
+    ).
 
 % takes list of all type defs XX now asserted in tdef/2
 % (first arg is now unused)
@@ -3538,6 +3674,9 @@ infer_post(PS, SS) :-
 % XX function declarations currently asserted rather than being passed
 % around: just fname and canonical type stored
 :- dynamic(nfdec_struct/2).
+
+% XX declarations with "inferred" postconditions stored here temporarily
+:- dynamic(nfdec_struct_inferred_post/2).
 
 % XX function definitions currently asserted rather than being passed
 % around

@@ -120,7 +120,9 @@ clean:
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c \
-		array.c array.h adtpp.errs
+		absshare.c eval.c evalp.c queue_du.c tuple.c union_find.c random.c \
+		array.c array.h adtpp.errs:set noet ts=8
+
 	rm -if testio bst p1bst pbst isort bst_poly
 	rm -if tmp* a.out errs
 

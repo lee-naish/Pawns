@@ -126,7 +126,8 @@ list_cord(l) = {
 cord_app :: cb -> list(bool) -> cb
     sharing cord_app(c0,l)=c
     pre nosharing
-    post c=branch(c0,leaf(l)).
+    post inferred.
+    % post c=branch(c0,leaf(l)).
 cord_app(c0, l) = {
     return(branch(c0, leaf(l)))
 }.
@@ -135,7 +136,8 @@ cord_app(c0, l) = {
 cord_pre :: list(bool) -> cb -> cb
     sharing cord_pre(l,c0)=c
     pre nosharing
-    post c=branch(leaf(l),c0).
+    post inferred.
+    % post c=branch(leaf(l),c0).
 cord_pre(l, c0) = {
     return(branch(leaf(l), c0))
 }.

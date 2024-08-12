@@ -115,7 +115,8 @@ list_cord(l) = {
 cord_app :: cord(T) -> list(T) -> cord(T)
     sharing cord_app(c0,l)=c
     pre nosharing
-    post c=branch(c0,leaf(l)).
+    post inferred.
+    % post c=branch(c0,leaf(l)).
 cord_app(c0, l) = {
     return(branch(c0, leaf(l)))
 }.
@@ -124,7 +125,8 @@ cord_app(c0, l) = {
 cord_pre :: list(T) -> cord(T) -> cord(T)
     sharing cord_pre(l,c0)=c
     pre nosharing
-    post c=branch(leaf(l),c0).
+    post inferred.
+    % post c=branch(leaf(l),c0).
 cord_pre(l, c0) = {
     return(branch(leaf(l), c0))
 }.
@@ -138,7 +140,8 @@ testcord(l) = {
     cb0 = leaf(cons(true, nil)); % cord(bool)
     cb1 = leaf(cons(nil, nil));  % cord(list(_))
     cb2 = leaf(cons(cons(true, nil), nil));  % cord(list(bool))
-    cb3 = branch(cb2,cb1); % instantiates type of cb1
+    cb3 = branch(cb2,cb1); % instantiates type of cb1 - XXX cyclic term!
+    % in assert(type_struct_c(list(...),sum(...,...)))
     % cb4 = branch(cb0,cb1); % type error: cord(bool) vs cord(list(_))
     cb5 = branch(cb1,cb1); % non-ground type
     c0=leaf(l);

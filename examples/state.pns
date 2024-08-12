@@ -27,7 +27,7 @@ test1(ip) = {
     jp = isdef;
     io1 = io;
     putchar(!getchar(void)) !io1; % XXX ! missing on putchar
-    *!io := io1 !io1; % can say *io is a pointer (but can't deref it)
+    *!io := *io1 !io1; % can say *io is a pointer (but we can't deref it)
     dummy = io1;
     jp
 }.

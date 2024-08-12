@@ -100,6 +100,14 @@ compile(BNS) :-
         nfdec_struct(MG, T),
         T = ref(T1),
         % write('static '),
+        % To avoid multiple definitions in ld, we need to declare
+        % 'import'ed state vars as extern. import_imp of state vars is
+        % not allowed.
+        ( imported(MG) ->
+            write('extern ')
+        ;
+            true
+        ),
         type_c_type('', T1),
         write(' '),
         write(MG),
