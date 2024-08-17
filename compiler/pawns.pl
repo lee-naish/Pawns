@@ -670,7 +670,7 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     TPs = [TFR|TFArgs],
     % result type is not checked by add_typed_anns since it
     % doesn't know what is returned; its checked in add_last_anns
-    add_typed_anns(FB, S1, VTm1, VTm),
+    add_typed_anns(FB, S1, VTm1, VTm, [], PolyVs),
     % check implict wo vars are instantiated and have types
     % compatible with declarations (like := type check)
     ( TF = arrow(_, _, _, _, _, _, _, _, _, _, WOIs) ->
@@ -708,7 +708,21 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % type_to_banged(TF, BVs),
     append(FHAs, AllVs, AllVs1),
     sort(AllVs1, Vs1),
-    add_last_anns(S1, Stat, last(TFR), Vs1, _UVs, [], _IBVs).
+    % XPOLY From VTm we can determine all vars with polymorphic types
+    % and add used_later everywhere so they have to be banged, even with
+    % their last use (XXX a bit of overkill - really only needed if their
+    % type is further instantiated in the last call and they share with
+    % other vars)
+    % XXXX doesn't work - a var may have a polymorphic type before its
+    % last use, the type *should* be instantiated but there is no ! on
+    % the var but later the type var is instantiated to something
+    % different but ground due to a sharing var being updated. By the
+    % time we get here the type is not ground. Could just collect all
+    % vars that initially have polymorphic types?
+    % poly_vars(VTm, PolyVs),
+    % (PolyVs \= [] -> writeln(xxxxxxxxxxxxxxxxxxx(PolyVs)); true),
+    append(Vs1, PolyVs, Vs2),
+    add_last_anns(S1, Stat, last(TFR), Vs2, _UVs, [], _IBVs).
     % Need to keep type vars here because in canonical form, casts
     % might be moved later than a call to a polymorphic function call
     % and type instance needs to be propagated backwards to call when we
@@ -716,6 +730,14 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % of the arrow have ref(void) instead of correct type instance
     % smash_type_vars(VTm).  % XX clobber any local type vars just in case...
     % writeq(Stat), nl.
+
+poly_vars(VTm, PolyVs) :-
+    findall(PV, (
+        gen_assoc(PV, VTm, PT),
+        name(PV, [C|_]),
+        C \= 0'V,  % ignore generated var names
+        \+ ground(PT)
+        ), PolyVs).
 
 % from type of defn, extract banged arguments. They are typically in the
 % innermost arrow as the outer arrows just create closures (but not if a
@@ -759,6 +781,7 @@ extract_ret_type(A, T0, TAs, T) :-
         extract_ret_type(A1, T1, TAs1, T)
     ;
         writeln('Error: not enough arrows in type'(T0)),
+        % XXX should pass in src for error message
         % may barf later
         TAs = [],
         T = T0
@@ -951,7 +974,7 @@ cond_share(VTm0, PS, SS0, SS) :-
         ;
         writeln('Error: ill-formed pre/post condition'(PS))
         ),
-        add_typed_anns(S, S1, VTm0, _VTm),
+        add_typed_anns(S, S1, VTm0, _VTm, [], _PolyVs),
         retractall(checking_pre_post),
         alias_stat(S1, VTm0, SS0, SS)
     ).
@@ -1837,7 +1860,8 @@ pat_arg(E, DV, ESs0, ESs) :-
 % Add last_stat, used_later(vars), last_use(v) annotations so we put return
 % statements in the compiled code, etc and avoid
 % mutability errors for dead vars (XX probably don't need these annotations
-% on all the stats we put them on)
+% on all the stats we put them on, last_use isn't actually used -
+% used_later is sufficient)
 % We do bottom to top traversal with current list of used vars (should
 % be initialised to parameters) + last statement flag
 % The expected return type is passed in with the last statement flag and
@@ -1954,7 +1978,7 @@ write_src(Anns) :-
 its(PS) :-
     pstat_stat(PS, S),
     empty_assoc(VTm0),
-    add_typed_anns(S, S1, VTm0, VTm),
+    add_typed_anns(S, S1, VTm0, VTm, [], _PolyVs),
     writeln(S1),
     assoc_to_list(VTm, VTs),
     writeln(VTs).
@@ -1984,13 +2008,13 @@ its(PS) :-
 % The kind of checking we do later has an expected type (from the LHS)
 % and the actual type of the thing on the RHS and we need to make sure
 % the pre/post conditions are compatible.
-add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm) :-
+add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C0 = seq(Sa0, Sb0),
-    add_typed_anns(Sa0, Sa, VTm0, VTm1),
-    add_typed_anns(Sb0, Sb, VTm1, VTm),
+    add_typed_anns(Sa0, Sa, VTm0, VTm1, PolyVs0, PolyVs1),
+    add_typed_anns(Sb0, Sb, VTm1, VTm, PolyVs1, PolyVs),
     C = seq(Sa, Sb),
     Ann = Ann0.
-add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm) :-
+add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C0 = cases(V, Cases0),
     lookup_old_assoc(V, VTm0, TV, VTm1),
     % we want to keep track of types of all vars to use for type
@@ -2000,19 +2024,20 @@ add_typed_anns(C0-Ann0, C-Ann, VTm0, VTm) :-
     % is definitely defined (for all execution paths), keep all vars in
     % the map (definitely defined or not), and don't allow the same var
     % to be defined in different case branches with different types.
-    % map_acc(add_typed_anns_case(TV), Cases0, Cases, VTm1, VTm),
-    map_add_typed_anns_case(TV, Cases0, Cases, VTm1, VTms),
+    % map_acc(add_typed_anns_case(TV), Cases0, Cases, VTm1, VTm,
+    % PolyVs0, PolyVs),
+    map_add_typed_anns_case(TV, Cases0, Cases, VTm1, VTms, PolyVs0, PolyVs),
     % XX would be more efficient if we just returned extra elements of
     % VTm
     vt_intersection(VTms, VTm),
     C = cases(V, Cases),
     Ann = [typed(TV)|Ann0].
-add_typed_anns(eq_var(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
+add_typed_anns(eq_var(Vl, Vr)-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = eq_var(Vl, VrA),
     TVl = Tl,
     TVr = Tr,
-    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
-add_typed_anns(eq_deref(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA, PolyVs0, PolyVs).
+add_typed_anns(eq_deref(Vl, Vr)-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     % XX v = *abstract a bit weird and breaks other stuff
     ( Vr = abstract ->
         writeln('Error: dereference of abstract not allowed'),
@@ -2026,19 +2051,19 @@ add_typed_anns(eq_deref(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
         TVl = Tl,
         TVr = ref(Tr)
     ),
-    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
-add_typed_anns(deref_eq(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA, PolyVs0, PolyVs).
+add_typed_anns(deref_eq(Vl, Vr)-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = deref_eq(Vl, VrA),
     TVl = ref(Tl),
     TVr = Tr,
-    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
-add_typed_anns(assign(Vl, Vr)-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_veq(eq, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA, PolyVs0, PolyVs).
+add_typed_anns(assign(Vl, Vr)-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     % XX *!v := abstract a bit weird - disallow?
     C = assign(Vl, VrA), % same as deref_eq
     TVl = ref(Tl),
     TVr = Tr,
-    add_typed_anns_veq(assign, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA).
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_veq(assign, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA, PolyVs0, PolyVs).
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs, PolyVs) :-
     C = var_stat(V),
     % we once allowed var::type "statements" and treated them as declarations
     % before the var is defined
@@ -2057,38 +2082,38 @@ add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
     % we add typed_rhs in case this is the last statement and
     % its converted to returnvar = V
     Ann = [typed(TV), typed_rhs(TV)|Ann0].
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs, PolyVs) :-
     C = empty_stat, % not needed?
     Ann = Ann0,
     VTm = VTm0.
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = eq_dc(Vl, DC, Arity, Args),
     % similar to applications but we extract the types differently
     dc_type(DC, Arity, TDC, TDCArgs),
-    add_typed_anns_dcapp(Vl, DC, TDC, Args, TDCArgs, TDC, Ann0, Ann, VTm0, VTm).
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_dcapp(Vl, DC, TDC, Args, TDCArgs, TDC, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs).
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = eq_sapp(Vl, F, Args),
     nfdec_struct(F, TF),
-    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm).
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs).
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = eq_papp(Vl, F, Args),
     % same as eq_sapp
     nfdec_struct(F, TF),
-    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm).
-add_typed_anns(C-Ann0, C-Ann, VTm0, VTm) :-
+    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs).
+add_typed_anns(C-Ann0, C-Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     C = eq_app(Vl, F, Args),
     % XX if type of Vl is not an arrow we can replace app by sapp
     % good for compilation but need to tweek sharing anal code(?)
     % same as eq_sapp except we lookup type of F in assoc
     lookup_old_assoc(F, VTm0, TF, VTm1),
-    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm1, VTm).
+    add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm1, VTm, PolyVs0, PolyVs).
 
 % for function applications (arrow types)
 % XX F passed in for error message - better to pass in src
-add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm) :-
+add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     length(Args, Arity),
     extract_ret_type(Arity, TF, TFArgs, TFR),
-    add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm).
+    add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs).
 
 % for applications and data constructors
 % XX F passed in for error message - better to pass in src
@@ -2100,12 +2125,45 @@ add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm) :-
 % arrow types because they may cause unification failure.  However,
 % annotations must be put back in the unified type for later use.
 % XX Its all rather messy and could do with a rethink...
+% 
+% XPOLY: New version of ensuring safety: Whenever we use a banged var
+% (or a var that shares with one) with a polymorphic type, we
+% instantiate the type of the var. If the var later gets used where a
+% different instance of the type is expected there will be a type error.
+% An advantage of this is that we don't need explicit casting of nil
+% (for example) if a var is a pointer to an initially empty list that
+% then gets updated. Its particularly beneficial for polymorphic code
+% with destructive update of the non-polmorphic bits, eg the polymorphic
+% version of cords where the nil needs to cast to a list of T, where T
+% is the type parameter in the type signature (which currently we don't
+% have access to in the function and use an ugly hack for now)
+% 
+% Unfortnately, type analysis is done before sharing/update analysis. We
+% can rely on updated vars having ! in the source code so type analysis
+% can be depend on it *except* that last uses of vars generally don't have
+% to have !. To add to the inconvenience last_use and used_later are
+% also added after type analysis.
+% First attempt: any var with a polymorphic type at the end of type
+% analysis is added to the used_later list, so last use isn't
+% recognised. BUT a type vars can be instantiated to a (different,
+% ground) type because a shared variable is updated - at the end of type
+% checking the type is ground and there is no ! annotation on the last
+% use of the var that used a different type.
+% XXXX We need to do something special for the last occurrence of vars,
+% since they may not be banged even though they are updated? Should be
+% ok (?) - if they started with a polymorphic type then were updated the
+% type should be further instantiated when the last use occurs and if
+% its incompatible we get a type error.
+% Plan: We collect all vars with an initial polymorphic type and add all
+% these to the used_later list, so last use isn't recognised and if
+% these vars are updated 
+% 
 % XXXX BUG: for polymorphic higher order code we get bogus errors
 % when the type of the call is not instantiated: postcondition has self
 % sharing for type params whereas we expect just sharing for the
 % instance. Why doesn't type/map get instantiated - thats intuitively
 % what we want to do and could avoid this problem.
-add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
+add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs) :-
     % [Vl|Args] is [LHS var| RHS vars in args of fn]
     % [TFR|TFArgs] is expected types of above from F
     (   map_acc(flip_lookup_old_assoc, Args, TPCurrs, VTm0, VTm1),
@@ -2116,12 +2174,13 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         map(deannotate_type, TCurrsc, TCurrsc1),
         % we need a separate copy of deannotated type for instance
         % checking below
-        copy_term(TCurrsc1, TCurrsc2),
+        % copy_term(TCurrsc1, TCurrsc2),
         copy_term(TF-TFR-TFArgs, TFc1-TFRc1-TFArgsc1),
         unify_with_occurs_check(TCurrsc1, TFArgsc1)
     ->
         % check that !var type hasn't been instantiated
-        map2(check_du_var_type_inst(Ann0), Args, TCurrsc1, TCurrsc2),
+        % XPOLY XXXX need to handle arrows with deannotate_type
+        map2(check_du_var_type_inst(Ann0), Args, TCurrsc1, TCurrs),
         % we put back the first annotation we see for each arrow type
         unify_first_arrows(TCurrsc, TFArgsc1),
         Tr = TFRc1
@@ -2131,8 +2190,9 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         map_acc(flip_lookup_old_assoc, Args, TPCurrs, VTm0, _),
         writeln('ERROR: type error in arguments of application:'(E, TPCurrs, TFArgs)),
         write_src(Ann0),
-        smash_type_vars(TFArgs) % proceed with some default type
-        ,writeln(TFArgs)    % XXX???
+        smash_type_vars(TFArgs), % proceed with some default type
+        TFc1 = TF,
+        Tr = TFR
     ),
     ( get_assoc(Vl, VTm1, TVl-_DF) -> 
         % we check if its a pre/postcondition using dynamic flag
@@ -2166,6 +2226,11 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
         % Trc = Tr,
         % TFc = TF,
         % TFArgsc = TFArgs
+    ),
+    ( ground(TVl) ->
+        PolyVs = PolyVs0
+    ;
+        PolyVs = [Vl|PolyVs0]
     ),
     % TFArgs has uninstantiated HO type, TCurrsc has instantiated HO
     % type (-> problem); TFArgsc1 has instantiated type (has been
@@ -2210,12 +2275,32 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm) :-
 
 'X,bang(d,X)'(X,bang(d,X)).
 
-% if var V has a bang annotation, check the type hasn't been further
-% instantiated
+% if var V has a bang annotation, the type may need further
+% instantiation
+% XPOLY now we just unify types TV1 is the instantiated copy for this
+% call; TV2 is the earlier, possibly more general type from the type map
 check_du_var_type_inst(Ann, V, TV1, TV2) :-
-    ( member(bang(_, V), Ann), \+ variant(TV1, TV2) -> % renaming ok (XXX check?)
-        writeln('Error: type of updated variable instantiated'(V, TV1, TV2)),
-        write_src(Ann)
+    ( member(bang(_, V), Ann), \+ variant(TV1, TV2) ->
+        % XXX can get bogus looking warnings here because type annotations are
+        % stripped from arrow types but types might be the same but with
+        % renamed variables, eg T->T then T1->T1
+        % We use the ground check below to reduce messages but still get
+        % some.  The variant check should just ignore annotations.
+        % XXX Do we check annotations are compatible?  Ideally we could
+        % do a form of unification with annotations, possibly adding
+        % preconditions from one arrow type and deleting postconditions
+        % from the other (not sure allowing such code is wise!).
+        ( ground(TV2) ->
+            true
+        ;
+            writeln('Note: instantiating type of updated variable'(V::TV2)),
+            (TV1 = TV2 ->
+                writeln('  new type'(TV1))
+            ;
+                writeln('Oops: can\'t unify types')
+            ),
+            write_src(Ann)
+        )
     ;
         true
     ).
@@ -2224,7 +2309,8 @@ check_du_var_type_inst(Ann, V, TV1, TV2) :-
 % For left and right sides we pass in var, type, and type of var.
 % The latter two will be either identical vars or T and ref(T),
 % depending on form of equality
-add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
+add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann,
+VrA, PolyVs0, PolyVs) :-
     % type of Vr should already be known (special case for abstract)
     % if its known and not ref(_) but TVr=ref(_) its an error
     ( Vr = abstract ->
@@ -2242,6 +2328,7 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         smash_type_vars(Tlc), % just in case...?
         VrA = abstract(Tlc),
         put_assoc(VrA, VTm1a, Tl-def, VTm1)
+        % ignore PolyVs for abstract
     ;
         VrA = Vr,
         lookup_old_assoc(Vr, VTm0, TVr0, VTm1)
@@ -2281,14 +2368,22 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
         ( subsumes_chk(Tr1, Tl) ->
             Tr1 = Tl,
             check_ho_types(Ann0, Vl=Vr, Tl, Trc)
+        ; (AEQ = assign, subsumes_chk(Tl, Tr1)) ->
+            % XPOLY for assignment we allow Tl to be further
+            % instantiated by Tr1
+            writeln('Note: instantiating type of updated variable'(Vl::TVl)),
+            Tl = Tr1,
+            writeln('  new type'(TVl)),
+            write_src(Ann0)
         ;
             writeln('Error: type error in var equality/assignment:'(((Vl::TVl), (Vr::TVr)))),
             write_src(Ann0)
         ),
         VTm = VTm1,
+        PolyVs = PolyVs0,
         Casts = []
     ; member(typed(TVl0), Ann0) ->  % :: T annotation on RHS
-        xxx(member(typed(TVl0), Ann0)),
+        % xxx(member(typed(TVl0), Ann0)),
         % check TVl0 is lesseq general than Tr
         copy_term(Tr, Trc),
         ( Trc == Tr -> % worth bothering??
@@ -2316,6 +2411,11 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
             write_src(Ann0)
             % XX do something to help carry on here rather than fail?
         ),
+        ( ground(TVl0) ->
+            PolyVs = PolyVs0
+        ;
+            PolyVs = [Vl|PolyVs0]
+        ),
         put_assoc(Vl, VTm1, TVl0-def, VTm)
     ;
         (AEQ = assign -> % := with no prior assignment - dodgey
@@ -2325,6 +2425,11 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
             true
         ),
         Tl = Tr,
+        ( ground(TVl) ->
+            PolyVs = PolyVs0
+        ;
+            PolyVs = [Vl|PolyVs0]
+        ),
         put_assoc(Vl, VTm1, TVl-def, VTm),
         Trc = Tr,
         Casts = []
@@ -2335,7 +2440,7 @@ add_typed_anns_veq(AEQ, Vl, Tl, TVl, Vr, Tr, TVr, VTm0, VTm, Ann0, Ann, VrA) :-
 % first arg is current known type of case var
 % XXX add case_def
 add_typed_anns_case(TV, case_dc(DC, Arity, PArgs, S0),
-                     case_dc(DC, Arity, PArgs, S), VTm0, VTm) :-
+                     case_dc(DC, Arity, PArgs, S), VTm0, VTm, PolyVs0, PolyVs) :-
     dc_type(DC, Arity, TDC, TDCArgs),
     map('X,ref(X)', TDCArgs, TRDCArgs),
     % PArgs is (deref) pattern vars
@@ -2357,7 +2462,7 @@ add_typed_anns_case(TV, case_dc(DC, Arity, PArgs, S0),
                     [TV|TCurrs] - [TDC|TRDCArgs]))
         % XX make error message nicer here?
     ),
-    add_typed_anns(S0, S, VTm1, VTm).
+    add_typed_anns(S0, S, VTm1, VTm, PolyVs0, PolyVs).
 
 % take list of VTs from cases and get intersection
 % YYY rename: now returns the union, but if you ignore elements with the
@@ -2384,11 +2489,16 @@ add_assoc_if_in_all(VTms0, V - (T-DF), VTm0, VTm) :-
     ).
 
 % check V has type T in VTs (if it has another type, issue error) and is
-% definitely defined
+% definitely defined.  If types are not identical but can be unifed we
+% allow it and issue a warning (hopefully occurs check not required! XXX)
 check_get_assoc(V, T, VTm) :-
     (get_assoc(V, VTm, T1-DF) ->
         (T1 == T ->
             true
+        ; T1 = T ->
+            % Allow polmorphic types to be instantiated without cast, eg
+            % v = nil in one branch and v = cons(42,nil) in another
+            writeln('Warning: instantiating type '(V :: T))
         ;
             writeln('Error: same var name with different types: '(V)),
             fail
@@ -2399,10 +2509,10 @@ check_get_assoc(V, T, VTm) :-
     ).
 
 % As above for list of cases - return list of case branches + VTms
-map_add_typed_anns_case(_, [], [], _, []).
-map_add_typed_anns_case(TV, [Case0|Cases0], [Case|Cases], VTm0, [VTm|VTms]) :-
-    add_typed_anns_case(TV, Case0, Case, VTm0, VTm),
-    map_add_typed_anns_case(TV, Cases0, Cases, VTm0, VTms).
+map_add_typed_anns_case(_, [], [], _, [], PolyVs, PolyVs).
+map_add_typed_anns_case(TV, [Case0|Cases0], [Case|Cases], VTm0, [VTm|VTms], PolyVs0, PolyVs) :-
+    add_typed_anns_case(TV, Case0, Case, VTm0, VTm, PolyVs0, PolyVs1),
+    map_add_typed_anns_case(TV, Cases0, Cases, VTm0, VTms, PolyVs1, PolyVs).
 
 % like copy_term but we first strip sharing/mutability info from arrow
 % types
@@ -2411,7 +2521,7 @@ copy_type_term(T0, T) :-
     copy_term(T1, T).
 
 % strip sharing/mutability/implicit arg info from arrow types
-% currently strip implicit arguments
+% currently doesn't(?) strip implicit arguments
 deannotate_type(T0, T) :-
     ( var(T0) ->
         T = T0
@@ -2787,6 +2897,9 @@ check_banged(BVs, MVs, SS, Ann, Stat) :-
 % Could avoid returning LV from should_bang_lhs and to extra checking
 % of LV here or rewrite check_banged1 so it uses variable components,
 % not just variables.
+% XPOLY maybe want to pass in types so vars that are not used_later
+% still have to be banged if the have polymorphic types.  Might be
+% easier to fudge used_later
 check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
     (   setof(MVP, should_bang_lhs(LV, SS, MVP), VPs1) -> % Note setof can fail
         check_banged_lhs1(BVs, VPs1, SS, Ann, Stat)
@@ -2818,6 +2931,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         ;
             true
         ),
+        % \+ (member(last_use(LUVs), Ann), member(V, LUVs)),
         % we check for du of abstract vars, even if they are banged
         % note we need to check for sharing with abstract, not
         % V=abstract(_)
@@ -3277,7 +3391,6 @@ type_path_sum1(sum_ref_anc(ref(T), _), _Ancs,
             vpc('_ref', 1, 1, vpe), _AF, pinfo('_ref', 1, T)).
 type_path_sum1(Arrow, _Ancs, P, AF, PInfo) :-
     Arrow = arrow(_, TypeR, _, _, _, _, _, _, _ROIs, _RWIs, _WOIs),
-    PInfo = pinfo('_arrow', 1, Arrow), % details not used?
     (AF = vpef ->
         VPR = vpe
     ;
@@ -3287,7 +3400,11 @@ type_path_sum1(Arrow, _Ancs, P, AF, PInfo) :-
     % #closure args = #arrows in TypeR + 1
     arrow_num(TypeR, NCAR),
     NCA is NCAR + 1,
-    between(1, NCA, CAN).
+    between(1, NCA, CAN),
+    % pinfo details not used but we want them distinct to avoid bogus sharing
+    % pairs being introduced, eg ref(arrowtype) and ref(closure of
+    % arrowtype)
+    PInfo = pinfo('_arrow', 1, CAN-Arrow).
 
 % as above but called with arg of a product (data constructor) so it
 % must be a ref (made explicit in the ref view that type_struct
@@ -3665,9 +3782,9 @@ infer_post(PS, SS) :-
     pstat_stat(PS, S),
     % empty_assoc(VTm0),
     globals_type_assoc([], VTm0),
-    add_typed_anns(S, S1, VTm0, VTm),
+    add_typed_anns(S, S1, VTm0, VTm, [], _PolyVs),
     smash_type_vars(S1), % XX?
-    % add_last_anns not needed but last_use anns can speed things up
+    % add_last_anns not needed but last_use anns could speed things up
     add_last_anns(S1, S2, last(_), [], _UVs, [], _IBVs),
     alias_stat(S2, VTm, [], SS).
 
@@ -3687,7 +3804,8 @@ fn_def_struct(A, B, C, VTm) :- fdef_struct(A, B, C, VTm).
 
 %%%%%%
 % Overall handling of statements for sharing analysis
-% XXX should remove alias info from dead vars some time
+% XXX should remove alias info from dead vars some time - thats what
+% last_use is designed for
 % Second arg here and related preds is Var-Type map for statement, which
 % we need just when folding types for vars that have paths that share
 % with LHS of := (not used in some of preds)
@@ -3707,6 +3825,8 @@ alias_stat(C-Ann, VTm, SS0, SS) :-
     % any sharing introduced between these vars we must not implicitly
     % mutate Vr later
     % XXXX add this check to DC and applications also (or everything)
+    % XPOLY Casts now not needed much (?) - if Vr is mutated later with a more
+    % instantiated type, the type of Vr (and Vl) will be further instantiated
     (   member(casts([Vr]), Ann),
         SS0 \== SS, % XX inefficient if SS0 big
         member(ibanged_later(IBVs), Ann),
@@ -4788,8 +4908,10 @@ lookup_old_assoc(Key, Assoc, Value, NewAssoc) :-
         ( checking_pre_post ->
             true
         ;
-            writeln(Assoc),
-            writeln('Error: undefined variable '(Key))
+            writeln('Error: undefined variable '(Key)),
+            writeln(Assoc)
+            % XXXX can lead to major barf - should protect where this is
+            % called
         ),
         put_assoc(Key, Assoc, Value-undef, NewAssoc)
     ).

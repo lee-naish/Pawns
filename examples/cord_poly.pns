@@ -21,7 +21,8 @@ cordlist(x) = {
     % currently scope of declaration doesn't include defn, so T here is
     % not the same T as in the declaration and we get an error
     % *a = (nil :: list(T));
-    *a = (nil :: list('_type_param'(1))); % hack
+    % *a = (nil :: list('_type_param'(1))); % hack
+    *a = nil;
     b = cordlist1(!x, !a);
     return(*a)
 }.

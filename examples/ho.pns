@@ -1,16 +1,16 @@
 % various higher order things
 
-test :: void -> void
+test:: void -> void
     sharing test(vd)=vd1
     pre nosharing
     post nosharing.
 test(q) = {
     % old-style var declarations
     % re-do some of these tests with := rather than =
-    % (v0 :: f0);
-    % (v2 :: f2);
-    % (v2s :: list(f2));
-    % (v3 :: f3);
+    % (v0:: f0);
+    % (v2:: f2);
+    % (v2s:: list(f2));
+    % (v3:: f3);
     % v0 = foo3 is a postcond violation because when v0 is called
     % we will assume no sharing is added but for foo3 there may be
     % v0 = foo3; % XX
@@ -33,7 +33,7 @@ test(q) = {
     return
 }.
 
-test0 :: void -> void
+test0:: void -> void
     sharing test0(vd)=vd1
     pre nosharing
     post nosharing.
@@ -50,7 +50,7 @@ test0(q) = {
     return
 }.
 
-test1 :: void -> void
+test1:: void -> void
     sharing test1(vd)=vd1
     pre nosharing
     post nosharing.
@@ -80,12 +80,12 @@ test1(vvv) = {
 }.
 
 % XXX crazy if id and not aren't defined
-test2 :: void -> void
+test2:: void -> void
     sharing test2(vd)=vd1
     pre nosharing
     post nosharing.
 test2(vvv) = {
-    *zsp = (nil :: list(bool)); % required for below
+    *zsp = nil;
     *!zsp := cons(true, nil);
 
     *fp = id;       % polymorphic fn
@@ -101,7 +101,7 @@ test2(vvv) = {
 
 % example showing eta-conversion does not preserve equivalence wrt
 % sharing and (therefore) destructive update
-test3 :: bool -> pair(bool,bool).
+test3:: bool -> pair(bool,bool).
 test3(b) = {
     m = just(true);
     f = maybenot(m);
@@ -115,7 +115,7 @@ test3(b) = {
 
 % currently pre/post conds are not type checked until they are used -
 % maybe this should change
-test4 :: T1 -> T2 -> T1
+test4:: T1 -> T2 -> T1
     sharing test4(b1, b2) = rb
     pre b1 = b2     % XX type error
     % pre nosharing
@@ -143,7 +143,7 @@ type f3 = (mb -> mb -> mb sharing
     pre  b1 = b2
     post rb = b1).
 
-foo0 :: maybe(bool) -> maybe(bool) -> mb
+foo0:: maybe(bool) -> maybe(bool) -> mb
     sharing foo0(b1,b2)=rb
     pre nosharing
     post nosharing.
@@ -151,7 +151,7 @@ foo0(b1, b2) = {
     return( nothing)
 }.
 
-foo1 :: maybe(bool) -> maybe(bool) -> mb
+foo1:: maybe(bool) -> maybe(bool) -> mb
     sharing foo1(b1,b2)=rb
     pre nosharing
     post rb=b1.
@@ -159,7 +159,7 @@ foo1(b1, b2) = {
     return( nothing)
 }.
 
-foo2 :: maybe(bool) -> maybe(bool) -> mb
+foo2:: maybe(bool) -> maybe(bool) -> mb
     sharing foo2(b1,b2)=rb
     pre b1=b2
     post nosharing.
@@ -167,7 +167,7 @@ foo2(b1, b2) = {
     return( nothing)
 }.
 
-foo3 :: maybe(bool) -> maybe(bool) -> mb
+foo3:: maybe(bool) -> maybe(bool) -> mb
     sharing foo3(b1,b2)=rb
     pre b2=b1
     post (b1=b2; rb=b1).
@@ -176,7 +176,7 @@ foo3(b1, b2) = {
 }.
 
 % note: returns fn
-foo4 :: maybe(bool) -> maybe(bool) -> mb
+foo4:: maybe(bool) -> maybe(bool) -> mb
     sharing foo4(b1,b2)=rb
     pre b2=b1
     post nosharing.
@@ -185,7 +185,7 @@ foo4(b1) = {
 }.
 
 % note: returns fn
-foo5bug :: maybe(bool) -> maybe(bool) -> mb
+foo5bug:: maybe(bool) -> maybe(bool) -> mb
     sharing foo5bug(b1,b2)=rb
     pre b2=b1
     post rb=b1.
@@ -196,7 +196,7 @@ foo5bug(b1) =
 % '  type is  '(maybe(bool) -> 
 % somewhat confusing error message with return('V0')
 
-zw0 :: f0 -> mbs -> mbs -> mbs
+zw0:: f0 -> mbs -> mbs -> mbs
     sharing zw0(f,mbs1,mbs2)=rbs
     pre nosharing
     post nosharing.
@@ -218,7 +218,7 @@ zw0(f, mbs1, mbs2) = {
 }.
 
 
-map :: gp(T1, T2) -> list(T1) -> list(T2)
+map:: gp(T1, T2) -> list(T1) -> list(T2)
     sharing map(f,mbs1)=mbs
     pre nosharing
     post nosharing.
@@ -231,7 +231,7 @@ map(f, mbs) = {
     }
 }.
 
-map0 :: g0 -> mbs -> mbs
+map0:: g0 -> mbs -> mbs
     sharing map0(f,mbs1)=mbs
     pre nosharing
     post nosharing.
@@ -244,7 +244,7 @@ map0(f, mbs) = {
     }
 }.
 
-map1 :: g1 -> mbs -> mbs
+map1:: g1 -> mbs -> mbs
     sharing map1(f,mbs1)=mbs
     pre nosharing
     post mbs=mbs1.
@@ -257,8 +257,8 @@ map1(f, mbs) = {
     }
 }.
 
-% goo0 :: g0. % XXX should support (but use !g0 ???)
-goo0 :: mb -> mb sharing
+% goo0:: g0. % XXX should support (but use !g0 ???)
+goo0:: mb -> mb sharing
     g0(mb1) = mb
     pre nosharing
     post nosharing.
@@ -266,7 +266,7 @@ goo0(b1) = {
     goo0(b1)
 }.
 
-% goo1 :: g1.
+% goo1:: g1.
 goo1 ::mb -> mb sharing
     g1(mb1) = mb
     pre nosharing
@@ -297,10 +297,10 @@ type h4 = (mb -> mb -> bool -> bool -> mb sharing
     pre  b1 = b2
     post rb = b2).
 
-% XXX hoo4 :: h4.
-hoo4 :: mb -> mb -> bool -> bool -> mb sharing
+% XXX hoo4:: h4.
+hoo4:: mb -> mb -> bool -> bool -> mb sharing
 % sa(t=true;j=just(t);a=hoo4;b=a(j);c=b(j);d=c(t);e=d(t)).
-% hoo4 :: mb -> list(bool) -> bool -> int -> list(bool) sharing
+% hoo4:: mb -> list(bool) -> bool -> int -> list(bool) sharing
     f4(b1, b2, b3, b4) = rb
     pre nosharing
     post rb = b2.
@@ -308,7 +308,7 @@ hoo4(b1, b2, b3, b4) =
     % hoo4(b1, b2, b3, b4).
     b2.
 
-hoo5 :: mb -> list(bool) -> bool -> int -> list(bool)
+hoo5:: mb -> list(bool) -> bool -> int -> list(bool)
     sharing f4(b1, b2, b3, b4) = rb
     pre nosharing
     post rb = b2.
@@ -316,13 +316,13 @@ hoo5(b1, b2, b3, b4) =
     % hoo5(b1, b2, b3, b4).
     b2.
 
-id :: T -> T
+id:: T -> T
     sharing id(x) = y
     pre nosharing
     post y=x.
 id(x) = x.
 
-assign :: ref(T) -> T -> void
+assign:: ref(T) -> T -> void
     sharing assign(!xp, y) = v % XXX should have !y if pre y = *xp?
     pre y = *xp
     post y = *xp.
@@ -331,7 +331,7 @@ assign(xp, y) = {
     return
 }.
 
-% not :: bool -> bool
+% not:: bool -> bool
 %     sharing not(x) = y
 %     pre nosharing
 %     post nosharing.
@@ -341,7 +341,7 @@ assign(xp, y) = {
 %     case false: true
 %     ).
 
-const :: A -> B -> A
+const:: A -> B -> A
     sharing const(a, b) = r
     pre nosharing
     post r = a.
@@ -362,7 +362,7 @@ const(a, b) = a.
 %     sharing f(m, b) = r
 %     pre nosharing
 %     post r = closure(m)
-maybenot :: maybe(bool) -> bool -> bool.
+maybenot:: maybe(bool) -> bool -> bool.
 maybenot(m, b) = {
     cases m of {
     case just(b1): b1
@@ -398,8 +398,8 @@ maybenot(m, b) = {
 % to determine the value returned has a type as general as that
 % declared.
 
-% maybenot1 :: maybe(bool) -> bool -> bool. % OK but less precise
-maybenot1 :: maybe(bool) -> (bool -> bool)
+% maybenot1:: maybe(bool) -> bool -> bool. % OK but less precise
+maybenot1:: maybe(bool) -> (bool -> bool)
     sharing maybenot1(m) = f
     pre nosharing
     post nosharing. % no sharing with closure/function returned
@@ -417,7 +417,7 @@ maybenot1(m) = {
 
 /*
 
-hoo4 :: mb -> mb -> bool -> bool -> mb sharing ??
+hoo4:: mb -> mb -> bool -> bool -> mb sharing ??
 XX dont actually need these closure args - 'nothing' is atomic and
 will be copied so there can't be any external sharing (or update),
 even though there is sharing between the closures.  Should do no harm

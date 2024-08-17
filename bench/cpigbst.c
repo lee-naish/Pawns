@@ -22,6 +22,7 @@ static __inline intptr_t  bst_size(bst t);
 static __inline list  ones(intptr_t n);
 static __inline list  ones_acc(intptr_t n, list xs);
 static __inline void  print_tree(bst t);
+static __inline void  print_int(intptr_t i);
 
 
 void 
@@ -172,3 +173,9 @@ print_tree(bst t) {
         return;
     end_switch()
 }
+
+static __inline void
+print_int(intptr_t i){
+printf("%ld\n", (long)i);
+}
+

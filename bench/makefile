@@ -54,7 +54,7 @@ ADTPP=~/bin/adtpp
 	$(ADTPP) $<
 
 .bogus: all
-all: bst pbst cbst cpinfbst cpibst cpbst cpigbst hssbst hspbst hsrbst mlpbst mlrbst
+all: bst pbst cbst cpinfbst cpibst cpbst cpigbst hssbst hspbst hsrbst # mlpbst mlrbst
 
 .bogus: times
 times: all
@@ -67,15 +67,15 @@ times: all
 # 	echo
 # 	echo '------------ C with GC_malloc'
 # 	-time ./gcbst
-	echo
-	echo '------------ MLton with Ref, DU'
-	-time ./mlrbst
+# 	echo
+# 	echo '------------ MLton with Ref, DU'
+# 	-time ./mlrbst
 	echo
 	echo '------------ Haskell with STRef, DU'
 	-time ./hsrbst
-	echo
-	echo '------------ MLton no DU'
-	-time ./mlpbst
+# 	echo
+# 	echo '------------ MLton no DU'
+# 	-time ./mlpbst
 	echo
 	echo '------------ Pawns no DU'
 	-time ./pbst

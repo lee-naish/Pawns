@@ -159,7 +159,8 @@ scope(i) = {
         k = cons(42, nil); % :: list(int)
     l = k; % k not defined due to differing types above
     if j <= 0 then
-        k1 = (nil :: list(int))
+        % k1 = (nil :: list(int)) % previously needed cast
+        k1 = nil % types unified now
     else
         k1 = cons(42, nil);
     l1 = k1 % ok

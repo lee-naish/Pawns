@@ -28,7 +28,8 @@ cordlist(x) = {
     % this
     % XXX hmm, should have a way to get a type params in such places -
     % currently scope of declaration doesn't include defn
-    *a = (nil :: bs);
+    % *a = (nil :: bs);
+    *a = nil;
     b = cordlist1(!x, !a);
     return(*a)
 }.
@@ -39,8 +40,6 @@ cordlist(x) = {
 % (could instead have pointer to pointer to list and clobber it)
 cordlist1 :: cb -> rbs -> rbs
     sharing cordlist1(!x,!p)=p1
-    pre x=leaf(*p)
-    post p1=p. % postcond declared *additional* sharing
     % post (x=leaf(*p); p1=p).
 cordlist1(x, p) = {
     cases x of {

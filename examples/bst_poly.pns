@@ -41,7 +41,8 @@ list_bst :: ints -> ibst
     post nosharing.
 list_bst(xs) = {
     % we need *tp to be type ibst, not bst(T) since its updated
-    *tp = (mt :: ibst);
+    % *tp = (mt :: ibst);
+    *tp = mt;
     ilist_bst_du(xs, (<=), !tp);
     return(*tp)
 }.
@@ -55,8 +56,8 @@ bug1_list_bst :: ints -> ibst
 bug1_list_bst(xs) = {
     *tp = mt;               % tp :: ref(bst(T))
     ilist_bst_du(xs, (<=), !tp);   % mutates tp to ref(ibst)
-    % potential use of tp here in context where ref(bst(T)) expected,
-    % but tp is now a ref(ibst) so type preservation would be violated
+    % tp types is instantiated to ref(ibst) so any subsequent
+    % use of tp here in context where ref(bst(T)) expected, gives a type error
     return(*tp)
 }.
 
@@ -69,6 +70,8 @@ bug2_list_bst :: ints -> ibst
 bug2_list_bst(xs) = {
     *tp1 = mt;                  % tp1 :: ref(bst(T))
     tp2 = (tp1 :: ref(ibst));   % cast tp1 to get tp2
+    % "Error: sharing of cast variable later implicitly mutated"
+    % not really a need for this cast now that types get further instantiated
     ilist_bst_du(xs, (<=), !tp2) !tp1; % tp1 implicitly smashed
     % potential use of tp1 here in context where ref(bst(T)) expected,
     % but tp1 is now a ref(ibst) so type preservation would be violated
