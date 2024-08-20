@@ -723,13 +723,6 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % (PolyVs \= [] -> writeln(xxxxxxxxxxxxxxxxxxx(PolyVs)); true),
     append(Vs1, PolyVs, Vs2),
     add_last_anns(S1, Stat, last(TFR), Vs2, _UVs, [], _IBVs).
-    % Need to keep type vars here because in canonical form, casts
-    % might be moved later than a call to a polymorphic function call
-    % and type instance needs to be propagated backwards to call when we
-    % hit the cast in type analysis, otherwise the pre/post conditions
-    % of the arrow have ref(void) instead of correct type instance
-    % smash_type_vars(VTm).  % XX clobber any local type vars just in case...
-    % writeq(Stat), nl.
 
 poly_vars(VTm, PolyVs) :-
     findall(PV, (
@@ -849,11 +842,11 @@ arg_fdefarg(V, vp(V, vpe)).
 % supplied earlier (the types given explicitly in 4th-last arg of arrow/7),
 % also used in pre/post.
 arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :-
-    % type params are replaced by distinct ground types in the same
-    % way as we process function definitions, copy first to avoid
-    % binding type vars where we shouldn't
+    % type vars are replaced by _bot, because if a function returns
+    % list(T), for example, there can be no elements T returned - it
+    % must return an empty list.
     copy_term(T0, T),
-    smash_type_params(T),
+    smash_type_vars(T),
     % we get the (arrow) type nested Arity arrows down - that has
     % the sharing/DU + implicit arg info we need + type of result TR
     extract_ret_type_arrow(Arity, T, _, TR, OA),
@@ -920,23 +913,22 @@ cla_renaming([_|FCLAs], N, [cla(N)|CLAs]) :-
     cla_renaming(FCLAs, N1, CLAs).
 
 % Currently use upper case (Prolog vars) for type vars and sometimes we
-% want a ground type with at least one ref where there are vars (this is
-% sufficient to check pre/post), so we smash type vars with ref(void).
-% Generally we have multiple instances of the type for a fn and for each
-% one we instantiate it further and process the pre/post for the
-% instance (YYY Could cache things more and/or avoid some recomputation in
-% other ways).
-% XXX This caused bogus precondition violations if we have a
+% want a ground type that has the desired result. Here we smash any vars
+% with type _bot, which has no components for sharing (if something is
+% of list(T) where T is a var, for example, it can't have any components
+% of type T (it must be nil), so list(_bot) has the same set of
+% components.
+% Old version used ref(void) so there was a single component for this
+% (and more for data constructors around it).
+% This caused bogus precondition violations if we have a
 % function that returns something with a polymorphic type, eg
 % l = return_nil(void); accept_list_of_int(l)
-% results in l sharing with abstract(list(ref(void))) and the
-% precondition of accept_list_of_int only expects sharing with
-% abstract(list(ref(int))). Currently fixed (hopefully) by ignoring sharing
-% with abstract(void) in alias_stat_app. Might want to rethink this.
+% (worse, it caused failure of alias_stat on occasion!)
 smash_type_vars(T) :-
     ( var(T) ->
-        T = ref(void)
-    ; T = arrow(_, _, _, _, _, _, _, _, _, _, Is), var(Is) ->
+        % T = ref(void)
+        T = '_bot'
+    ; T = arrow(_, _, _, _, _, _, _, _, _, _, Is), var(Is) -> % ???
         T = arrow(ref(void), ref(void), [], [], r, nosharing, nosharing, [], [], [], [])
     ;
         T =.. [_|As],
@@ -1036,7 +1028,20 @@ builtin_func_arity(==, 2).
 builtin_func_arity(apply, 2).
 
 % XX
+% XXX maybe void should be called unit but we are inflenced by C.
+% Type void it has one value (void) so it requires
+% zero bits to represent it. Its a bit special in the translation to C
+% - C void functions don't really return any value and void in C
+% doesn't have any values (this can break HO things potentially)
 builtin_tdef(void, [dcons(void, [])]).
+% We have a separate type called bottom ('_bot') that has no values. Due
+% to strictness, any data constructor applied to bottom is bottom. We
+% handle this specially when computing type paths; it is important
+% because a function that returns values of a polymorphic type such as
+% list(T) is restricted in what it can return (nil is the only value of
+% this type). We use list('_bot') to generate type paths etc in this
+% case.
+builtin_tdef('_bot', []).
 builtin_tdef(int, [dcons(xyzzy, [])]).
 builtin_tdef(bool, [dcons(false, []), dcons(true, [])]).
 builtin_tdef(ref(T), [dcons('_ref', [T])]).
@@ -2293,7 +2298,7 @@ check_du_var_type_inst(Ann, V, TV1, TV2) :-
         ( ground(TV2) ->
             true
         ;
-            writeln('Note: instantiating type of updated variable'(V::TV2)),
+            writeln('Warning: instantiating type of updated variable'(V::TV2)),
             (TV1 = TV2 ->
                 writeln('  new type'(TV1))
             ;
@@ -3422,14 +3427,24 @@ type_path_ref(sum_anc(ref(T), _), _, vpe,
             _AF, DC, ANum, pinfo(DC, ANum, T)).
 
 % as above for prod type (list of DCs)
+% Note, we need a special case to deal with data constructors that
+% have an argument of type _bot. There are no such computed values. We need
+% to just skip this such data constructors.  Eg for list(_bot), we skip
+% the cons/2 data constructor (and nil has no paths either; nil is the
+% only value of this type 
 type_path_prod(DCs, Ancs, P, AF, PInfo) :-
     member(prod(DC, Arity, Sums), DCs),
+    \+ (has_bot_arg(Sums)),
     between(1, Arity, ANum),
     nth1(ANum, Sums, Sum),
     sum_to_type(Sum, ref(T)),
     % \+ member(ref(T), Ancs), % avoids >1 path with same type for refs
     P = vpc(DC, Arity, ANum, P1),
     type_path_ref(Sum, [ref(T)|Ancs], P1, AF, DC, ANum, PInfo).
+
+% checks if _bot is in list of sum_ref types
+has_bot_arg(Sums) :-
+    member(sum_ref(ref('_bot'), _), Sums).
 
 % change rep so we always have type name paired with sum
 sum_to_type(sum(T, _), T).
@@ -3467,6 +3482,7 @@ fold_type_path_sum(TS, P, TP1) :-
     % )),
     TP1 = TP.
 
+% Old version
 % return all paths which may share corresponding to a type
 % YY might be worth caching this
 % Recursive types are folded so there are a finite number of paths.
@@ -4540,6 +4556,9 @@ alias_stat_dc(Vl, VTm, [ASum|ASums], LSum, DC, Arity, A, [VPr|Args], SS0, SSN) :
 alias_fn(Fn) :-
     writeln('    sharing analysis of '(Fn)),
     nfdec_struct(Fn, T),
+    % We replace type vars by fudged ground param types that have a
+    % single component for sharing no data constructors
+    smash_type_params(T),
     func_arity(Fn, Arity),
     arrow_to_sharing_dus(Arity, T, RFAs, Precond, Postcond, BArgs, ROIs, RWIs, WOIs),
     fn_def_struct(Fn, Args, Stat, VTm),
@@ -4588,8 +4607,9 @@ alias_fn(Fn) :-
     rename_sharing(Postcond, RFAs1, ResArgs1, PostSS),
     sort(PostSS, PostSS1),
     % extract types of args so we can init self-sharing
-    nfdec_struct(Fn, TFn), % do we need to call this again?? YY
-    smash_type_params(TFn),
+    % nfdec_struct(Fn, TFn), % do we need to call this again?? YY
+    % smash_type_params(TFn),
+    TFn = T,
     extract_ret_type(Arity, TFn, TFArgs, _TFR),
     append(ROIs, RWIs, RIs),
     map(nfdec_struct, RIs, RITs),

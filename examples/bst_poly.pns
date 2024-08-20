@@ -70,6 +70,7 @@ bug2_list_bst :: ints -> ibst
 bug2_list_bst(xs) = {
     *tp1 = mt;                  % tp1 :: ref(bst(T))
     tp2 = (tp1 :: ref(ibst));   % cast tp1 to get tp2
+    % tp2 = tp1;
     % "Error: sharing of cast variable later implicitly mutated"
     % not really a need for this cast now that types get further instantiated
     ilist_bst_du(xs, (<=), !tp2) !tp1; % tp1 implicitly smashed
