@@ -67,12 +67,13 @@ array_nthp :: array(T) -> int -> ref(T)
     post a = array_(*r).
 array_nthp(arr, n) = as_C "\c
 {	\n\c
-#if ARR_BOUND_CHK // array bounds check	\n\c
+// default is arrays have bound checks; turn off with -D UNSAFE_ARRAY
+#ifndef UNSAFE_ARRAY // array bounds check	\n\c
     if (n > *(intptr_t*)a || n < 0) {	\n\c
         fprintf(stderr, \"Array bounds error\\n\"); \n\c
         exit(1);	\n\c
     }	\n\c
-#endif // ARR_BOUND_CHK	\n\c
+#endif // UNSAFE_ARRAY	\n\c
     return (intptr_t)((void**)arr+n+1); // ptr arith, cast important	\n\c
 }	\n\c
 ".

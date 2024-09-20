@@ -6,6 +6,8 @@
 % This file is too long and the structure within it is not understood -
 % it should be broken up into separate modules etc...
 
+% XXX see Bugs file for more things to fix
+
 % XXX need to FIX sharing analysis for cases ++ (see paper)
 
 % XXX need to FIX checking of ! in statements: distinguish between
@@ -20,11 +22,50 @@
 
 % XXX use read_term(X, [variable_names(Vs)]) for function prototypes and
 % definitions and unifiy vars so we can cast vars to types including
-% type vars in the prototype.
+% type vars in the prototype. (casts not needed much now)
 
 % XXX some hacking done related to name/2 etc due to the way string
 % handling has changed in Prolog over the years.  Should just go with
 % the modern way of doing things probably.
+
+% State variables and higher order - clarification (probably not the best
+% place to put this but it's better than nowhere - its's a bit tricky).
+% If we call f::int -> int -> int implicit wo svwo, rw svrw with two
+% arguments its all clear - svwo will get defined (so we must save the old
+% value before this call end restore it before we return), svrw must be
+% defined already and it may be used and modified. However, what if f is
+% called with just one argument? If it's defined with two arguments we just
+% create a closure and nothing is done until we call the closure later (if at
+% all). If f is defined with one argument and returns a closure, potentially
+% it can do some things then more things are done when we call the closure
+% later. For example, if the first call defines svwo and reads/updates svrw and
+% the second call just reads svrw, the declaration should refined to
+% f::int -> (int -> int implicit wo svwo, rw svrw) implicit ro svrw
+% If this function is called with two arguments we would have to combine the
+% different implicit declarations, the ro being subsumed by the rw (and if
+% there were two separate wo svwo declarations we should end up with a
+% redefinition error.  However, "Hyper-saturated applications not yet
+% supported", so this is future work.
+% But could we have nested implicit declarations like that for a function
+% defined with two arguments? Potentially, but lets avoid it for now - should
+% give an error if the function has implicit arguments declared in any but
+% the last "outermost" arrow (higher order function arguments with implicit
+% arguments are ok).
+% Do we need to include sharing info for implicit args in closures
+% (thats what lead us down a rabbit hole...)? Implicit vars are not
+% actually there but update of them will effectively change the value of
+% the closure in some sense. However, when the closure is actually
+% called it will have an ! annotation anyway and it should be clear it
+% uses the current version of the state vars. The only main question is
+% whether we need extra explicit info such as sharing in postconditions
+% or extra ! annotations for things like *!sv := val !closurefn (where
+% closurefn is a closure that has sv implicit).  Latter I don't think so
+% (! on call to closurefn is sufficient) and former also OK I think
+% since return type has implicit in it.  So answer can be NO.
+% it more 
+
+% XXX probably should move info about types and abstract domain here also
+% see "type representation for sharing analysis"
 
 :- ensure_loaded(library(ordsets)).
 
@@ -647,6 +688,10 @@ fdef_fdef_struct(PFH, PFB, FDS) :-
     ).
 
 % as above without error trap
+% XXXX currently it's assumed the arguments in FH are the same as the
+% arguments in the pattern in the arrow type - should check/rename, otherwise
+% we get the "banged" vars in the type being different from the intended
+% banged vars in the code
 fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     FH =.. [FName|FHAs],
     writeln('    type analysis of '(FName)),
@@ -713,14 +758,6 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % their last use (XXX a bit of overkill - really only needed if their
     % type is further instantiated in the last call and they share with
     % other vars)
-    % XXXX doesn't work - a var may have a polymorphic type before its
-    % last use, the type *should* be instantiated but there is no ! on
-    % the var but later the type var is instantiated to something
-    % different but ground due to a sharing var being updated. By the
-    % time we get here the type is not ground. Could just collect all
-    % vars that initially have polymorphic types?
-    % poly_vars(VTm, PolyVs),
-    % (PolyVs \= [] -> writeln(xxxxxxxxxxxxxxxxxxx(PolyVs)); true),
     append(Vs1, PolyVs, Vs2),
     add_last_anns(S1, Stat, last(TFR), Vs2, _UVs, [], _IBVs).
 
@@ -879,7 +916,7 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
     sort(SSS1, SSS2),
     cond_share(VTm1, Pre, SSS2, PreSS1),
     % we delete all share pairs involving anything but an arg var
-    % or abstract
+    % or abstract or ro/rw state var
     filter_sharing_both_member(PreSS1, AllFAs, PreSS),
     % XXX
     % for postconditions we also add self-sharing for return var
@@ -890,7 +927,9 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
     % allow dcons(x,y) = r syntax (shorthand for cases), maybe its not
     % so necessary to have this.  Perhaps we should just put up with
     % more verbose postconds for the sake of expressive power.
-    type_var_self_share(TR, R, RSelfs),
+    % We treat wo vars similarly
+    map2(type_var_self_share, AllResArgTs, AllResFAs, RSelfss),
+    append(RSelfss, RSelfs),
     % XXX if postconditions don't implicitly include sharing from precondition
     % the next line is appropriate. This potentially allows a bit more
     % precision at the cost of more verbose postconditions, though only
@@ -901,16 +940,8 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
     % SSS4 = SSS2, % appropriate if we don't want self share for result
     cond_share(VTm1, Post, SSS4, PostSS1),
     % we delete all share pairs involving anything but an arg var,
-    % the result var or abstract
-    filter_sharing_both_member(PostSS1, [R|AllFAs], PostSS).
-
-% given formal args for pre/post corresponding to closure args,
-% compute list of cla(N) which they will be renamed to
-% XX no longer used?
-cla_renaming([], _, []).
-cla_renaming([_|FCLAs], N, [cla(N)|CLAs]) :-
-    N1 is N + 1,
-    cla_renaming(FCLAs, N1, CLAs).
+    % the result var or abstract or wo/rw state var
+    filter_sharing_both_member(PostSS1, AllResFAs, PostSS).
 
 % Currently use upper case (Prolog vars) for type vars and sometimes we
 % want a ground type that has the desired result. Here we smash any vars
@@ -983,7 +1014,7 @@ cond_share(VTm0, PS, SS0, SS) :-
 % XX
 % XX we have a fake function called closure for pre/postconds only -
 % handled specially for handling sharing of closure arguments
-builtin_fdec((!io :: ref(void))).
+builtin_fdec((!io :: ref(void))). % XXXX should be ref(ref(void/opaque_type))???
 builtin_fdec((closure :: _A -> _B sharing f(a)=b pre nosharing post
 nosharing)).
 builtin_fdec((not :: bool -> bool)).
@@ -1154,11 +1185,7 @@ canon_ct(dcons(C, Ts), dcons(C, Ts1)) :-
 % the src code had t1 -> (...) sharing f(x1,x2)=x3 it would look like x1
 % is a closure argument.
 %
-% We also handle implicit parameters. ro and rw parameters are inherited
-% to outer (more left) arrows whereas wo parameters are just added at
-% the level they are declared.
-% XX should allow multiple (nested) implicit argument declarations with
-% sensible defaults for inheriting - may not be done ideally
+% We also handle implicit parameters.
 canon_type_name(ST, T) :-
     ( ctn1([], ST, T) ->
         true
@@ -1182,8 +1209,10 @@ ctn1(Ts, ST, T) :-
         append(Ts, [TL], Ts1),
         ctn1(Ts1, STR, TR),
         ( nonvar(TR), TR = implicit(TR1, ROIs, RWIs, WOIs) ->
+            % next type down had implicit args declared
             true
         ;
+            % no implicit args declared (here at least)
             TR1 = TR,
             ROIs = [],
             RWIs = [],
@@ -1198,7 +1227,7 @@ ctn1(Ts, ST, T) :-
         ctn1([], STL, TL),
         append(Ts, [TL], Ts1),
         ctn1(Ts1, STR, TR),
-        TR = arrow(_, _, _RBVs, RLAs, RR, RPre, _, _, ROIs, RWIs, _),
+        TR = arrow(_, _, _RBVs, RLAs, RR, RPre, _, _, _ROIs, _RWIs, _),
         % we say no vars are banged since we just create a closure
         length(Ts, NTs),
         NCLAs is NTs + 1,
@@ -1206,7 +1235,9 @@ ctn1(Ts, ST, T) :-
         CL =.. [closure|CLAs],
         % T = arrow(TL, TR, [], CLAs, RR, RPre, RR = CL, Ts, _ROIs,
         % _RWIs, _WOIs)
-        T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, ROIs, RWIs, [])
+        % previously inherited ROIs, RWIs from arrow to right - no longer
+        % T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, ROIs, RWIs, [])
+        T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, [], [], [])
     ; ST = (STL -> STR) ->
         % no sharing specified - assume abstract sharing
         % All args x should have x=abstract in pre and in post we want
@@ -1221,8 +1252,10 @@ ctn1(Ts, ST, T) :-
         vars_abs_eq(LAs, Pre),
         vars_abs_eq([r|LAs], Post),
         ( nonvar(TR), TR = implicit(TR1, ROIs, RWIs, WOIs) ->
+            % next type down had implicit args declared
             true
         ;
+            % no implicit args declared (here at least)
             TR1 = TR,
             ROIs = [],
             RWIs = [],
@@ -1246,12 +1279,24 @@ ctn1(Ts, ST, T) :-
 % declared and return sorted lists of ro, rw, wo implicit params
 gather_implicits(Ic, ROIs, RWIs, WOIs) :-
     ( gather_imps(Ic, ROIs0, RWIs0, WOIs0) ->
-        % XXX should check ROIs0, RWIs0, WOIs0 don't intersect
         sort(ROIs0, ROIs),
         sort(RWIs0, RWIs),
-        sort(WOIs0, WOIs)
+        sort(WOIs0, WOIs),
+        % check ROIs0, RWIs0, WOIs0 don't intersect
+        ( member(V, ROIs), member(V, RWIs) ->
+            writeln('Error: implicit parameter declared ro and rw:'(V))
+        ; member(V, ROIs), member(V, WOIs) ->
+            writeln('Error: implicit parameter declared ro and wo:'(V))
+        ; member(V, RWIs), member(V, WOIs) ->
+            writeln('Error: implicit parameter declared wo and rw:'(V))
+        ;
+            true
+        )
     ;
-        writeln('Error in implicit parameter declarations:'(Ic))
+        writeln('Error in implicit parameter declarations:'(Ic)),
+        ROIs = [],
+        RWIs = [],
+        WOIs = []
     ).
 
 % as above, returning unsorted lists
@@ -1530,7 +1575,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                     ESs, S)
             ; PEr = (!PEr1) ->
                 % more repeated code - getting bad!
-                ( functor(PEr1, F, Arity), func_arity(F, DecArity) ->
+                functor(PEr1, F, Arity),
+                ( func_arity(F, DecArity) -> % call known fn
                     % f(h,t) -> v = f(hv,tv)
                     PEr1 =.. [F|PEs],
                     map2(to_var, PEs, Vs, ESs),
@@ -1547,7 +1593,13 @@ pstat_eq_stat(PEl, PEr, S) :-
                         writeln('Hyper-saturated applications not yet supported'(F)),
                         fail
                     )
-                ; atom(PEr1) ->
+                ; Arity > 0 -> % call state var closure with arg
+                    PEr1 =.. [F|PEs],
+                    map2(to_var, PEs, Vs, ESs),
+                    foldr(combine_stats,
+                        eq_app(Vl, F, Vs)-[app_bang(F)|Anns],
+                        ESs, S)
+                ; Arity = 1 ->
                     % XXX could count this as an error?
                     S = eq_var(Vl, PEr1)-[bang(d, PEr1)|Anns]
                 ;
@@ -2154,12 +2206,9 @@ add_typed_anns_app(Vl, F, TF, Args, Ann0, Ann, VTm0, VTm, PolyVs0, PolyVs) :-
 % ground) type because a shared variable is updated - at the end of type
 % checking the type is ground and there is no ! annotation on the last
 % use of the var that used a different type.
-% XXXX We need to do something special for the last occurrence of vars,
-% since they may not be banged even though they are updated? Should be
-% ok (?) - if they started with a polymorphic type then were updated the
-% type should be further instantiated when the last use occurs and if
-% its incompatible we get a type error.
-% Plan: We collect all vars with an initial polymorphic type and add all
+% We need to do something special for the last occurrence of vars,
+% since normally they may not be banged even though they are updated.
+% We collect all vars with an initial polymorphic type and add all
 % these to the used_later list, so last use isn't recognised and if
 % these vars are updated 
 % 
@@ -2258,11 +2307,28 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm, PolyVs0
         ),
         map('X,bang(d,X)', RWIs, Bangs),
         append([wo(WOIs)|Bangs], Ann1, Ann),
-        ( (member(I, ROIs) ; member(I, RWIs)),
+        % check definition of ro+rw vars; if there are no args we have a
+        % closure and when the closure they are needed, but not here.
+        % Do we need to count args and arrows to be
+        % more general?  Usually implicit only occurs in the "last" arrow.
+        % XXXX But maybe we are not catching all errors here because there may
+        % be N args and N arrows with implicit in the rightmost (see also wo
+        % args below)
+        (   Args \= [],
+            (member(I, ROIs) ; member(I, RWIs)),
             \+ get_assoc(I, VTm0, _),
             writeln('Error: undeclared implicit argument: '(F, I)),
             write_src(Ann0),
             fail
+        ;
+            true
+        ),
+        % check redefinition of wo vars (see ro+rw above)
+        (   Args \= [],
+            member(WOV, WOIs),
+            get_assoc(WOV, VTm2, TWOV-_),
+            writeln('Error: state variable redefined '(WOV :: TWOV)),
+            write_src(Ann0)
         ;
             true
         ),
@@ -2902,9 +2968,6 @@ check_banged(BVs, MVs, SS, Ann, Stat) :-
 % Could avoid returning LV from should_bang_lhs and to extra checking
 % of LV here or rewrite check_banged1 so it uses variable components,
 % not just variables.
-% XPOLY maybe want to pass in types so vars that are not used_later
-% still have to be banged if the have polymorphic types.  Might be
-% easier to fudge used_later
 check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
     (   setof(MVP, should_bang_lhs(LV, SS, MVP), VPs1) -> % Note setof can fail
         check_banged_lhs1(BVs, VPs1, SS, Ann, Stat)
@@ -3301,7 +3364,14 @@ mk_vp(X,P,vp(X,P)).
 % the programming pattern *xp = x1; *!xp := x2; *!xp := x3 without bogus
 % sharing of x1, x2 an x3, even if they have recurive types such as
 % list(t) (previous version had sharing due to the empty path being used
-% for such types).
+% for such types). This assumes there is no recursion through a ref. For
+% types such as ref(r1rr) below, there is still bogus sharing.  Maybe we
+% could stop recursion when there is an ancestor with the same type and the
+% same function symbol wrapper, so a list(int) in a top level ref would
+% not be the same as the list(int) inside a cons.  This would still be a
+% problem for types like ref(r1rr) with explicit refs. Doesn't seem to be
+% easy to solve this imprecision.  XXX migt be good to implement the
+% same fn symbol+type method at least?
 % Examples:
 % from rectype.pns:
 % (note difference from sharing paper in rtree example)
@@ -4431,10 +4501,13 @@ check_ho_types_arrow(Anns, RHS, LType, RType) :-
         print('  type is  '(RType)), nl,
         % print('  expected postcondition '(SrcPost)), nl
         print('  expected '(LType)), nl,
+        ord_subtract(RPostSS1, LPostSS1, DiffPostSS),
+        print('   extra sharing'(DiffPostSS)),
+        nl,
         write_src(Anns)
     ),
     % check mutable args: R should be subset of L
-    % XXX need to rename first???
+    % XXXXX need to rename first!
     ( member(BV, RTBVs), \+ member(BV, LTBVs) ->
         NErr2 is NErr1 + 1,
         print('Error: incompatible mutable argument '(RHS, BV)), nl,

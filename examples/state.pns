@@ -34,6 +34,7 @@ test1(ip) = {
 
 test2 :: ref(int) -> ref(int)
     % implicit rw io % XXX missing
+    implicit ro isdef, wo isdef % XXX isdef repeated
     sharing test2(!ip0) = ip
     pre nosharing
     post ip = ip0.
@@ -66,8 +67,8 @@ test4 :: ref(int) -> void
     pre ip=isdef
     post nosharing.
 test4(ip) = {
-    *!ip := 42; void
-}. % !isdef % XX
+    *!ip := 42 % XXX needs !isdef
+}.
 
 
 % if an argument shares with a sv of a function where the function doesn't
@@ -81,7 +82,7 @@ sharewithsv:: ref(int) -> int
     post nosharing.
 sharewithsv(ip) = {
     *!ip := 45;   % smashes *isdef if ip aliases it
-    !init_isdef(void); % smashes *ip if it aliases isdef
+    !init_isdef(42); % smashes *ip if it aliases isdef
     *ip          % returns 42 if ip aliases isdef
 }.
 
@@ -90,7 +91,7 @@ ret_sv:: void -> ref(int)
     pre nosharing
     post nosharing.
 ret_sv(v) = {
-    !init_isdef(void); % *isdef = 40
+    !init_isdef(42);
     ip = isdef;
     ip
     % scope of isdef ends but alias escapes XXX
@@ -101,8 +102,8 @@ ret_sv_val:: void -> ref(int)
     pre nosharing
     post nosharing.
 ret_sv_val(v) = {
-    !init_isdef(void); % *isdef = 40
-    *ip = *isdef;      % ip points to new mem cell containing 40
+    !init_isdef(42);
+    *ip = *isdef;
     ip
     % returns same val as ret_sv but without sv alias
     % - safe, even if *isdef was not atomic
@@ -166,24 +167,37 @@ scope(i) = {
     l1 = k1 % ok
 }.
 
-init_isdef :: void -> void
+init_isdef :: int -> void
     implicit wo isdef
     sharing init_isdef(v0) = v
     pre nosharing
     post nosharing.
-init_isdef(v) = {
-    *isdef = 40
+init_isdef(i) = {
+    *isdef = i
+}.
+
+% wrapped version of above - isdef defined indirectly via a function
+init_isdef_w :: int -> void
+    implicit wo isdef
+    sharing init_isdef_w(v0) = v
+    pre nosharing
+    post nosharing.
+init_isdef_w(i) = {
+    !init_isdef(i)
+    % isdef now defined to it can be (implicitly) returned
 }.
 
 % fn which introduces state var locally and return value shares with it
-% - this could break things if allowed
+% - ok *if* its declared wo
 scope_wo :: ref(int) -> ref(int)
+    implicit wo isdef
     sharing scope_wo(ip0) = ip
     pre nosharing
-    post ip = ip0.               % XXX ip = isdef not declared
-    % post ip = ip0; ip = isdef. % XXX isdef is undefined here
+    % post nosharing.         % ip = isdef missing
+    post ip = isdef.
 scope_wo(ip) = {
-    !init_isdef(void);  % defines isdef
+    !init_isdef_w(42);  % defines isdef
+    % !init_isdef(42);  % redefinition of isdef
     ip1 = isdef;      % sharing between isdef and ip1
     ip1
 }.
@@ -194,12 +208,115 @@ scope_ro :: ref(int) -> ref(int)
     implicit ro isdef
     sharing scope_ro(ip0) = ip
     pre nosharing
-    post nosharing.      % XXX ip = isdef not declared
-    % post ip = isdef.
+    % post nosharing.      % XXX
+    post ip = isdef.       % ok
 scope_ro(ip) = {
     ip1 = isdef;      % sharing between isdef and ip1
     ip1
 }.
+
+test5 :: int -> ref(int) -> void
+    implicit rw isdef
+    sharing test5(i, !ip) = v
+    pre ip=isdef
+    post nosharing.
+test5(i, ip) = {
+    *!ip := 42 !isdef
+}.
+
+% Return a closure that uses a sv: the implicit ro&rw args of the return
+% (arrow) type are inherited to the outer type so rwclosure_ret has rw isdef
+% (a bit confusing when there is sharing declared for inner and
+% outer arrows but its needed).
+% rwclosure_ret:: ref(int) -> % version returning test4 (OK)
+%         (ref(int) -> void
+%         implicit rw isdef
+%         % XXX compiler missing renaming - can't rename ip or we get
+% 	% Error: incompatible mutable argument 
+%         sharing f(!ip) = v
+%         pre ip=isdef
+%         post nosharing)
+%     sharing rwclosure_ret(ip0) = ip
+%     pre nosharing
+%     post nosharing.
+rwclosure_ret:: ref(int) ->
+        (ref(int) -> void
+        implicit rw isdef
+        sharing f(i, !ip) = v  % need i, represents closure arg
+        pre ip=isdef
+        post nosharing)
+    % implicit rw isdef % now OK  XXX can't declare here and above
+    sharing rwclosure_ret(ip0) = ip
+    pre nosharing
+    post nosharing.
+rwclosure_ret(ip) = {
+    % !init_isdef(42); % XXX already defined because it's rw in this fn
+    % !test4 % return closure
+    !test5(2) % return closure
+}.
+
+% Return a closure that uses a wo sv: the implicit wo arg of the return
+% (arrow) type isn't inherited to the outer type so woclosure_ret has no
+% implicit arguments. Calling woclosure_ret doesn't init the sv but
+% calling what it returns does.
+woclosure_ret:: ref(int) ->
+        (int -> void
+        implicit wo isdef
+        sharing f(v0) = v
+        pre nosharing
+        post nosharing)
+    sharing woclosure_ret(ip0) = ip
+    pre nosharing
+    post nosharing.
+woclosure_ret(ip) = {
+    !init_isdef(42); % OK - inits isdef (old value saved)
+    % can use isdef here
+    !init_isdef % return closure that will init isdef *when it is called*
+    % end of isdef scope (old value restored)
+}.
+
+use_closure_ret :: ref(int) -> ref(int)
+    sharing use_closure_ret(!ip) = ip0 % XXX can't swap vars
+    pre nosharing
+    post ip = ip0.
+use_closure_ret(ip) = {
+   % !init_isdef(void);
+   fwo = woclosure_ret(ip);
+   % f1 = rwclosure_ret(ip); % XXX isdef not defined yet + needs !
+   !fwo(42);	% inits isdef
+   f2 = !rwclosure_ret(ip); % isdef now defined - ok
+   !f2(!ip); % test5(2, ip), updates ip
+   % we get an error returning ip because sharing analysis says it might
+   % share with isdef.  It doesn't, but the precondition of f2 (test5)
+   % allows it and it's assumed it might be in the postcondition also
+   % XXX might be able to fix this (is it just a problem with state
+   % vars?)
+   ip
+}.
+
+nested_sv :: int ->
+        (int -> int implicit wo isdef, rw io)
+    implicit ro io.
+nested_sv(i) = {
+   ip
+}.
+
+nsv :: int -> int implicit wo isdef, rw io.
+nsv(i) = {
+   !putchar(10);
+   *isdef = i;
+   i
+}.
+
+use_nested_sv :: int -> int
+    implicit rw io.
+use_nested_sv(i) = {
+   f = !nested_sv(42);
+   j = !f(3);
+   % !f(3);
+   *isdef
+}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % stubs

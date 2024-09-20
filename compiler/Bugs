@@ -2,15 +2,26 @@ Incomplete list of bugs/limitations
 
 See XXX in code
 
+Check C code output where var is declared in different branches of if/etc -
+looks like C var scope is wrong.  Need to move declaration before if and just
+have assignment in the branches (treat it like :=).
+
+calling undefine function -> barf(?)
+
+See use_closure_ret in state.pns - can we avoid precondition being added to
+post-sharing here?
+
 Type casting in code - currrently looks like
     n = (nil :: list('_type_param'(1)))
 ugly A F.  Need to use version of
 read that captures (type) var names and effectively have scope
 being declaration of function plus function definition. A bit
-messy but not too bad.
+messy but not too bad. Now redone so type casts rarely ndded - compiler
+instantaiates types.
 
 Various things to fix in sharing analysis - see paper for
-"final" version of algorithm
+"final" version of algorithm (that now out of date since abstract domain is
+more expressive)
 
 Functions with multiple args, some of which are void cause C
 code with void args (error).  eg
