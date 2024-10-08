@@ -3,10 +3,16 @@ alias pppb='~/c/src/proglang/adt4c/src/adtpp pbst.adt'
 alias pph='~/c/src/proglang/adt4c/src/adtpp ho.adt'
 alias ppc='~/c/src/proglang/adt4c/src/adtpp cord.adt'
 alias cleann='rm\
+	 out \
 	 bst.adt bst.c bst.h \
 	 pbst.adt pbst.c pbst.h \
 	 ho.adt ho.c ho.h \
 	 cord.adt cord.c cord.h \
+	 pres.adt pres.c pres.h \
+	 mod1.adt mod1.c mod1.h \
+	 mod2.adt mod2.c mod2.h \
+	 rectype.adt rectype.c rectype.h \
+	 state.adt state.c state.h \
 	'
 alias gcb='gcc -O3   bst_main.c apply.c ; ./a.out'
 alias tuf='make testuf ; ./testuf'
