@@ -49,6 +49,7 @@ main() {
 #endif // Max
     t1 = clock();
     t = list_bst(l);
+    // exit(1); // temp hack for bst_count
     t2 = clock();
     printf("list_bst took %dms\n", (int)((t2-t1)*1000/CLOCKS_PER_SEC));
 #if Max==0

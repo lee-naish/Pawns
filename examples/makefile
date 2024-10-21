@@ -74,6 +74,8 @@ bst.c: bst.pns addlist.pns io.pns pawns.h builtin.h
 
 bst_poly.c: bst_poly.pns addlist.pns io.pns pawns.h builtin.h
 
+bst_count.c: bst_count.pns io.pns random.pns pawns.h builtin.h
+
 pbst.c: pbst.pns addlist.pns io.pns pawns.h builtin.h
 
 p1bst.c: p1bst.pns addlist.pns io.pns pawns.h builtin.h
@@ -82,6 +84,8 @@ p1bst.c: p1bst.pns addlist.pns io.pns pawns.h builtin.h
 bst: bst.o bst_main.o io.o addlist.o
 
 bst_poly: bst_poly.o bst_main.o io.o addlist.o
+
+bst_count: bst_count.o bst_main.o io.o random.o addlist.o
 
 pbst: pbst.o bst_main.o io.o addlist.o
 
@@ -116,14 +120,14 @@ test: bst pbst p1bst isort testio
 .bogus: clean
 clean:
 	rm -f *.adt *.o *.h.gch bst.h bst.c bst_poly.c p1bst.h pbst.h p1bst.c \
-		pbst.c testio.c wam.c wam.h \
+		pbst.c testio.c wam.c wam.h bst_count.c bst_count.h \
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c \
 		absshare.c eval.c evalp.c queue_du.c tuple.c union_find.c random.c \
-		array.c array.h adtpp.errs:set noet ts=8
+		array.c array.h adtpp.errs
 
-	rm -if testio bst p1bst pbst isort bst_poly
+	rm -if testio bst p1bst pbst isort bst_poly bst_count
 	rm -if tmp* a.out errs
 
 # :set noet ts=8

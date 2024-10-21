@@ -8,6 +8,11 @@
 
 % XXX see Bugs file for more things to fix
 
+% XXX
+% Error: variable i3 might be modified by i4=assign(i3,V3)
+%   source: i4=assign(!i3,4)
+% in bst.pns (weird - non-last arg ! lost perhaps????)
+
 % XXX need to FIX sharing analysis for cases ++ (see paper)
 
 % XXX need to FIX checking of ! in statements: distinguish between
@@ -33,7 +38,10 @@
 % If we call f::int -> int -> int implicit wo svwo, rw svrw with two
 % arguments its all clear - svwo will get defined (so we must save the old
 % value before this call end restore it before we return), svrw must be
-% defined already and it may be used and modified. However, what if f is
+% defined already and it may be used and modified.
+% XXXX Nope! implicit is parsed to be attached to rightmost (inner) arrow
+% currently so we need f::int -> (int -> int) implicit wo svwo, rw svrw
+% However, what if f is
 % called with just one argument? If it's defined with two arguments we just
 % create a closure and nothing is done until we call the closure later (if at
 % all). If f is defined with one argument and returns a closure, potentially
@@ -63,6 +71,11 @@
 % (! on call to closurefn is sufficient) and former also OK I think
 % since return type has implicit in it.  So answer can be NO.
 % it more 
+
+% XXXX Error: precondition violation:'(bst_insert(V7,t),s(t.node/3.1,abstract(bst)))
+% in bst_count.pns - self/abstract sharing bug?????
+
+% XXXX if c <= 0 then return(t) needs else (bst_count.pns)
 
 % XXX probably should move info about types and abstract domain here also
 % see "type representation for sharing analysis"
@@ -1572,7 +1585,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                 map2(to_var, PEs, Vs, ESs),
                 foldr(combine_stats,
                     eq_dc(Vl, F, Arity, Vs)-Anns,
-                    ESs, S)
+                    ESs, S1),
+                propogate_anns(S1, S)
             ; PEr = (!PEr1) ->
                 % more repeated code - getting bad!
                 functor(PEr1, F, Arity),
@@ -1583,11 +1597,13 @@ pstat_eq_stat(PEl, PEr, S) :-
                     ( Arity = DecArity ->
                         foldr(combine_stats,
                             eq_sapp(Vl, F, Vs)-[app_bang(F)|Anns],
-                            ESs, S)
+                            ESs, S1),
+                        propogate_anns(S1, S)
                     ; Arity < DecArity ->
                         foldr(combine_stats,
                             eq_papp(Vl, F, Vs)-[app_bang(F)|Anns],
-                            ESs, S)
+                            ESs, S1),
+                        propogate_anns(S1, S)
                     ;
                         % XX trf to eq_sapp(new, ...); eq_sapp(Vl, new,...)
                         writeln('Hyper-saturated applications not yet supported'(F)),
@@ -1598,7 +1614,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                     map2(to_var, PEs, Vs, ESs),
                     foldr(combine_stats,
                         eq_app(Vl, F, Vs)-[app_bang(F)|Anns],
-                        ESs, S)
+                        ESs, S1),
+                    propogate_anns(S1, S)
                 ; Arity = 1 ->
                     % XXX could count this as an error?
                     S = eq_var(Vl, PEr1)-[bang(d, PEr1)|Anns]
@@ -1613,11 +1630,13 @@ pstat_eq_stat(PEl, PEr, S) :-
                 ( Arity = DecArity ->
                     foldr(combine_stats,
                         eq_sapp(Vl, F, Vs)-Anns,
-                        ESs, S)
+                        ESs, S1),
+                    propogate_anns(S1, S)
                 ; Arity < DecArity ->
                     foldr(combine_stats,
                         eq_papp(Vl, F, Vs)-Anns,
-                        ESs, S)
+                        ESs, S1),
+                    propogate_anns(S1, S)
                 ;
                     % XX trf to eq_sapp(new, ...); eq_sapp(Vl, new,...)
                     writeln('Hyper-saturated applications not yet supported'(F)),
@@ -1634,7 +1653,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                 PEr =.. [F|PEs],
                 map2(to_var, PEs, Vs, ESs),
                 foldr(combine_stats,
-                    eq_app(Vl, F, Vs)-Anns, ESs, S)
+                    eq_app(Vl, F, Vs)-Anns, ESs, S1),
+                propogate_anns(S1, S)
             )
         ;
             write('ERROR: illegal LHS:'(PEl = PEr)),
@@ -1666,7 +1686,8 @@ to_var(PE, V, ES) :-
         map2(to_var, PEs, Vs, ESs),
         foldr(combine_stats,
             eq_dc(V, F, Arity, Vs)-[],
-            ESs, ES)
+            ESs, ES1),
+        propogate_anns(ES1, ES)
     % need to put * before defined functions otherwise indirection gets
     % treated as a partial application to multiplication (if we want the
     % latter we have to have another multiply fn)
@@ -1687,11 +1708,13 @@ to_var(PE, V, ES) :-
         ( Arity = DecArity ->
             foldr(combine_stats,
                 eq_sapp(V, F, Vs)-[],
-                ESs, ES)
+                ESs, ES1),
+            propogate_anns(ES1, ES)
         ; Arity < DecArity ->
             foldr(combine_stats,
                 eq_papp(V, F, Vs)-[],
-                ESs, ES)
+                ESs, ES1),
+            propogate_anns(ES1, ES)
         ;
             % XX trf to eq_sapp(new, ...); eq_sapp(PEl, % new,...)
             writeln('Hyper-saturated applications not yet supported'),
@@ -1725,7 +1748,8 @@ to_var(PE, V, ES) :-
         PE =.. [F|PEs],
         map2(to_var, PEs, Vs, ESs),
         foldr(combine_stats,
-            eq_app(V, F, Vs)-[], ESs, ES)
+            eq_app(V, F, Vs)-[], ESs, ES1),
+        propogate_anns(ES1, ES)
     ).
 
 % convert expression to *!var (LHS of :=) plus extra stat(s)

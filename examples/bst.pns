@@ -236,3 +236,49 @@ foldl_du(xs, f, tp) = {
     }
 }.
 
+
+% unrelated: du of single threaded DS without ! annotations:)
+single_thread2:: void -> void.
+single_thread2(v) = {
+    *i1 = 1;
+    i2 = increment(i1); % single threaded (i1 is not used later)
+    i2a = i2;           % not strictly single threaded
+    i2b = i2a;
+    i3 = increment(i2);  % OK (i2, i2a and i2b are not used later)
+    % XXXX Error: variable i3 might be modified by i4=increment(i3,V3)
+    i4 = increment(!i3); % not single threaded - need !
+    i3a = i3;
+    i5 = increment(i3) !i3a; % not single threaded - need !
+    i6 = increment(i3a)
+}.
+
+increment:: ref(int) -> ref(int)
+    sharing increment(!p) = r pre nosharing post r=p.
+increment(p) = {
+    *!p := *p + 1;
+    p
+}.
+
+
+% unrelated: du of single threaded DS without ! annotations:)
+single_thread:: void -> void.
+single_thread(v) = {
+    *i1 = 1;
+    i2 = assign(i1, 2); % single threaded (i1 is not used later)
+    i2a = i2;           % not strictly single threaded
+    i2b = i2a;
+    i3 = assign(i2, 3);  % OK (i2, i2a and i2b are not used later)
+    % XXXX Error: variable i3 might be modified by i4=assign(i3,V3)
+    i4 = assign(!i3, 4); % not single threaded - need !
+    i3a = i3;
+    i5 = assign(i3, 5) !i3a; % not single threaded - need !
+    i6 = assign(i3a, 6)
+}.
+
+assign:: ref(T) -> T -> ref(T)
+    sharing assign(!p, v) = r pre nosharing post r=p; *r=v.
+assign(p, v) = {
+    *!p := v;
+    p
+}.
+
