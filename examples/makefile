@@ -123,10 +123,10 @@ clean:
 		pbst.c testio.c wam.c wam.h bst_count.c bst_count.h \
 		io.c io.h imp.c imp.h addlist.c addlist.h io.h bst.h bst_poly.h \
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
-		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c \
-		absshare.c eval.c evalp.c queue_du.c tuple.c union_find.c random.c \
+		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c state.h \
+		absshare.c eval.c evalp.c queue_du.c queue_du.h tuple.c tuple.h \
+		union_find.c union_find.h random.c random.h \
 		array.c array.h adtpp.errs
-
 	rm -if testio bst p1bst pbst isort bst_poly bst_count
 	rm -if tmp* a.out errs
 

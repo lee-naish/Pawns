@@ -6,12 +6,24 @@
 % This file is too long and the structure within it is not understood -
 % it should be broken up into separate modules etc...
 
-% XXX see Bugs file for more things to fix
+% XXX see Bugs file for more things to fix plus XXX here and in *.pns
+% elsewhere
 
-% XXX
-% Error: variable i3 might be modified by i4=assign(i3,V3)
-%   source: i4=assign(!i3,4)
-% in bst.pns (weird - non-last arg ! lost perhaps????)
+% XXXX Error: precondition violation:'(bst_insert(V7,t),s(t.node/3.1,abstract(bst)))
+% in bst_count.pns - self/abstract sharing bug?????
+% Similar in des/*
+
+% XXXX rethink operator precedence of implicit so (hopefully) we don't need
+% t1 -> (t2 -> t3) implicit ...
+% We want implicit tied to outer arrow:
+% ?- display((foo :: t1 -> (t2 -> t3) implicit rw io)).
+% ::(foo,->(t1,implicit(->(t2,t3),rw(io))))
+% ?- display((foo :: t1 -> t2 -> t3 implicit rw io)).
+% ::(foo,->(t1,->(t2,implicit(t3,rw(io))))) - problem since its the inner
+% arrow, which we want to allow but it means something different (a function
+% that uses no state variables but returns an io function)
+% Maybe we could have above parsed as
+% ::(foo,implicit(t1 -> t2 -> t3, rw io)) then converted to first form
 
 % XXX need to FIX sharing analysis for cases ++ (see paper)
 
@@ -72,8 +84,7 @@
 % since return type has implicit in it.  So answer can be NO.
 % it more 
 
-% XXXX Error: precondition violation:'(bst_insert(V7,t),s(t.node/3.1,abstract(bst)))
-% in bst_count.pns - self/abstract sharing bug?????
+
 
 % XXXX if c <= 0 then return(t) needs else (bst_count.pns)
 
@@ -85,7 +96,9 @@
 % set up operators to enable OK syntax to be used (see *.pns)
 % XX try to tweek these so we can declare vars locally with :: but no
 % () (priority of :: should be low)
-:- op(5, fx, (!)).
+:- op(2, fx, ...).
+:- op(4, xfx, (^)). % shouldn't break things; used for more precise DU 
+:- op(7, fx, (!)).
 :- op(10, fy, (*)).
 :- op(10, fy, (**)). % for multiple indirection
 :- op(10, fy, (***)). % for multiple indirection
@@ -717,7 +730,8 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     length(FHAs, Arity),
     extract_ret_type(Arity, TF, TFArgs, TFR),
     % [TFR|TFArgs] is expected types [returnvar|FHAs]
-    ( TF = arrow(_, _, _, _, _, _, _, _, ROIs, RWIs, WOIs) ->
+    ( TF = arrow(_, _, _, _, _, _, _, _, ROIs, RWDUIs, WOIs) ->
+        map(strip_duspec, RWDUIs, RWIs),
         append(ROIs, RWIs, Is),
         globals_type_assoc(Is, VTm0)
     ;
@@ -774,6 +788,10 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     append(Vs1, PolyVs, Vs2),
     add_last_anns(S1, Stat, last(TFR), Vs2, _UVs, [], _IBVs).
 
+% remove duspec annotation from var
+strip_duspec(V^_, V).
+
+% returns list of vars with polymorphic types
 poly_vars(VTm, PolyVs) :-
     findall(PV, (
         gen_assoc(PV, VTm, PT),
@@ -891,7 +909,7 @@ arg_fdefarg(V, vp(V, vpe)).
 % the nested arrow types in arg 2 of arrow/7) plus have some closure args
 % supplied earlier (the types given explicitly in 4th-last arg of arrow/7),
 % also used in pre/post.
-arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :-
+arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWDUIs, WOIs) :-
     % type vars are replaced by _bot, because if a function returns
     % list(T), for example, there can be no elements T returned - it
     % must return an empty list.
@@ -900,7 +918,8 @@ arrow_to_sharing_dus(Arity, T0, [R|FAs], PreSS, PostSS, BVs, ROIs, RWIs, WOIs) :
     % we get the (arrow) type nested Arity arrows down - that has
     % the sharing/DU + implicit arg info we need + type of result TR
     extract_ret_type_arrow(Arity, T, _, TR, OA),
-    OA = arrow(_, _, BVs, _, _, Pre, Post, _, ROIs, RWIs, WOIs),
+    OA = arrow(_, _, BVs, _, _, Pre, Post, _, ROIs, RWDUIs, WOIs),
+    map(strip_duspec, RWDUIs, RWIs),
     % we repeat some work to get the formal res (R) + args (FAs) and
     % types of FAs (closure arg types CLATs and others TArgs)
     T = arrow(_, _, _, FAs, R, _, _, CLATs, _ROIs, _RWIs, _WOIs),
@@ -1191,14 +1210,27 @@ canon_ct(dcons(C, Ts), dcons(C, Ts1)) :-
 % end up some formal params which are unused, eg for the outer arrow
 % we get t1 -> (...) sharing f(x1,x2)=x3 pre s post f', where x2 is
 % never actually given a value. We could remove x2 from the param list,
-% and also from the percondition (where it may occur) but thats rather
+% and also from the precondition (where it may occur) but thats rather
 % tricky.  It turns out that the extra params do no harm and are
 % basically ignored later.  In the low level repersentation, types of
 % closure arguments are given explicitly so there is no ambiguity (if
 % the src code had t1 -> (...) sharing f(x1,x2)=x3 it would look like x1
 % is a closure argument.
 %
-% We also handle implicit parameters.
+% We also handle implicit parameters. These are attached one level further in
+% than is convenient:
+% t1 -> t2 -> t3 implicit rw io sharing f(a)=r pre nosharing post nosharing
+% is parsed as ->(t1,->(t2,sharing(implicit(t3,rw(io)...
+% The "implicit" is found and processed at the same recursion level as t3 and
+% the resulting type plus implicit params is returned from ctn1 wrapped up
+% in implicit/4 then unwrapped at the higher level.  Implicit arguments 
+% are inherited to outer arrows by default, thus the t1 -> ... type has
+% rw(io) added to it's representation.  This can be overridden by nested uses
+% of implicit, eg:
+% t1 -> (t2 -> t3 implicit rw io) implicit ro foo
+% has io for the inner arrow and foo for the outer arrow.  If we want to have
+% implicit arguments for an inner arrow but nothing for an outer arrow we can
+% use "implicit void".
 canon_type_name(ST, T) :-
     ( ctn1([], ST, T) ->
         true
@@ -1218,30 +1250,36 @@ ctn1(Ts, ST, T) :-
     ->
         % we have hit some explicit sharing info - deal with it + use
         % the outer types Ts passed in
+        L =.. [_Fn|LAs],
+        get_bang_args(LAs, BVs, LAs1),
         ctn1([], STL, TL),
         append(Ts, [TL], Ts1),
         ctn1(Ts1, STR, TR),
-        ( nonvar(TR), TR = implicit(TR1, ROIs, RWIs, WOIs) ->
-            % next type down had implicit args declared
-            true
-        ;
-            % no implicit args declared (here at least)
-            TR1 = TR,
-            ROIs = [],
-            RWIs = [],
-            WOIs = []
-        ),
-        L =.. [_Fn|LAs],
-        get_bang_args(LAs, BVs, LAs1),
+%         ( nonvar(TR), TR = implicit(TR1, ROIs, RWIs, WOIs) ->
+%             % next type down had implicit args declared
+%             true
+%         ;
+%             % no implicit args declared (here at least)
+%             TR1 = TR,
+%             ROIs = [],
+%             RWIs = [],
+%             WOIs = []
+%         ),
+%         T = arrow(TL, TR1, BVs, LAs1, R, Pre, Post, Ts, ROIs, RWIs, WOIs)
+        unwrap_implicit(TR, TR1, ROIs, RWIs, WOIs),
         T = arrow(TL, TR1, BVs, LAs1, R, Pre, Post, Ts, ROIs, RWIs, WOIs)
     ; ST = (STL -> STR), nonvar(STR), STR = (_ -> _) ->
         % arrow with RHS an arrow - need to recursively process RHS
         % and from the result infer the sharing for this arrow
+        % Implicit args are inherited from RHS
         ctn1([], STL, TL),
         append(Ts, [TL], Ts1),
         ctn1(Ts1, STR, TR),
-        TR = arrow(_, _, _RBVs, RLAs, RR, RPre, _, _, _ROIs, _RWIs, _),
-        % we say no vars are banged since we just create a closure
+        TR = arrow(_, _, _RBVs, RLAs, RR, RPre, _, _, ROIs, RWIs, WOIs),
+        % We say no vars are banged since we just create a closure
+        % XXX is this the best choice? A function can smash some arguments
+        % then return a closure.  Clarify how this can be declared and make
+        % sure everything is safe with this treatment.
         length(Ts, NTs),
         NCLAs is NTs + 1,
         take(NCLAs, RLAs, CLAs),
@@ -1250,7 +1288,7 @@ ctn1(Ts, ST, T) :-
         % _RWIs, _WOIs)
         % previously inherited ROIs, RWIs from arrow to right - no longer
         % T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, ROIs, RWIs, [])
-        T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, [], [], [])
+        T = arrow(TL, TR, [], RLAs, RR, RPre, RR = CL, Ts, ROIs, RWIs, WOIs)
     ; ST = (STL -> STR) ->
         % no sharing specified - assume abstract sharing
         % All args x should have x=abstract in pre and in post we want
@@ -1264,16 +1302,22 @@ ctn1(Ts, ST, T) :-
         take(NTs1, [a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13], LAs), % XXX
         vars_abs_eq(LAs, Pre),
         vars_abs_eq([r|LAs], Post),
-        ( nonvar(TR), TR = implicit(TR1, ROIs, RWIs, WOIs) ->
-            % next type down had implicit args declared
-            true
-        ;
-            % no implicit args declared (here at least)
-            TR1 = TR,
-            ROIs = [],
-            RWIs = [],
-            WOIs = []
-        ),
+%         ( nonvar(TR),
+%             TR = implicit(TR1, ROIs, RWIs, WOIs),
+%             \+ (ROIs = [], RWIs = [], WOIs = [])
+%         ->
+%             % type further down had implicit args declared - use+inherit them
+%             TI = arrow(TL, TR1, [], LAs, r, Pre, Post, Ts, ROIs, RWIs, WOIs),
+%             T = implicit(TI, ROIs, RWIs, WOIs)
+%         ;
+%             % no implicit args declared for next arrow
+%             TR1 = TR,
+%             ROIs = [],
+%             RWIs = [],
+%             WOIs = [],
+%             T = arrow(TL, TR1, [], LAs, r, Pre, Post, Ts, ROIs, RWIs, WOIs)
+%         )
+        unwrap_implicit(TR, TR1, ROIs, RWIs, WOIs),
         T = arrow(TL, TR1, [], LAs, r, Pre, Post, Ts, ROIs, RWIs, WOIs)
     ; ST = (ST1 implicit Ic) ->
         ctn1(Ts, ST1, ST2),
@@ -1288,19 +1332,43 @@ ctn1(Ts, ST, T) :-
         T =.. [F|As]
     ).
 
+% extract return type and implicit params from whatever ctn1 returns
+unwrap_implicit(TR0, TR, ROIs, RWIs, WOIs) :-
+        ( var(TR0) ->
+            % type var (= Prolog var)
+            TR = TR0,
+            ROIs = [],
+            RWIs = [],
+            WOIs = []
+        ; TR0 = implicit(TR, ROIs, RWIs, WOIs) ->
+            % implicit args declared (one level down in Prolog term)
+            true
+        ; TR0 = arrow(_, _, _, _, _, _, _, _, ROIs, RWIs, WOIs) ->
+            % implicit args possibly declared >1 level down and implicitly
+            % inherited
+            TR = TR0
+        ; % non-arrow type and no implicit args declared
+            TR = TR0,
+            ROIs = [],
+            RWIs = [],
+            WOIs = []
+        ).
+
 % scan through comma-separated sequence of implicit parameters
 % declared and return sorted lists of ro, rw, wo implicit params
+% Note rw params are annotated with DU specs; others are not
+% XXXX should check for repeated rw var with different DU specs
 gather_implicits(Ic, ROIs, RWIs, WOIs) :-
     ( gather_imps(Ic, ROIs0, RWIs0, WOIs0) ->
         sort(ROIs0, ROIs),
         sort(RWIs0, RWIs),
         sort(WOIs0, WOIs),
         % check ROIs0, RWIs0, WOIs0 don't intersect
-        ( member(V, ROIs), member(V, RWIs) ->
+        ( member(V, ROIs), member(V^_, RWIs) ->
             writeln('Error: implicit parameter declared ro and rw:'(V))
         ; member(V, ROIs), member(V, WOIs) ->
             writeln('Error: implicit parameter declared ro and wo:'(V))
-        ; member(V, RWIs), member(V, WOIs) ->
+        ; member(V^_, RWIs), member(V, WOIs) ->
             writeln('Error: implicit parameter declared wo and rw:'(V))
         ;
             true
@@ -1313,10 +1381,14 @@ gather_implicits(Ic, ROIs, RWIs, WOIs) :-
     ).
 
 % as above, returning unsorted lists
+gather_imps(void, [], [], []). % explicit declaration of no implicit args
 gather_imps((ro P), [P], [], []) :-
     atom(P).
-gather_imps((rw P), [], [P], []) :-
+gather_imps((rw P), [], [P^(...!)], []) :-
     atom(P).
+gather_imps((rw P), [], [P], []) :-
+    P = P1^_DUS,
+    atom(P1).
 gather_imps((wo P), [], [], [P]) :-
     atom(P).
 gather_imps((Ic1, Ic2), ROIs, RWIs, WOIs) :-
@@ -1332,11 +1404,17 @@ vars_abs_eq([V|Vs], (V = abstract; Es)) :-
     vars_abs_eq(Vs, Es).
 
 % from list of possibly banged vars, extract banged vars and vars
-% allow/ignore type annotations
+% allow/ignore type annotations XXX delete - what were they used for??
 get_bang_args([], [], []).
 get_bang_args([LA|LAs0], BVs, LAs) :-
-    ( (LA = (!V) ; LA = (!V::_)), atom(V) ->
+    ( (LA = (!V) ; LA = (!V::_)), V = V1^_DUS, atom(V1) ->
+        % Should check DUS is valid.  Have we processed type definitions
+        % here? We need them to check validity.
+        % XXXX valid_du_spec(DUS),
         BVs = [V|BVs1],
+        LAs = [V1|LAs1]
+    ; (LA = (!V) ; LA = (!V::_)), atom(V) ->
+        BVs = [V^(...!)|BVs1], % default DU spec is all DU = ...(!)
         LAs = [V|LAs1]
     ; (LA = V ; LA = (V::_)), atom(V) ->
         BVs = BVs1,
@@ -1453,7 +1531,10 @@ pstat_stat(PS, S) :-
             V = PS1,
             Ann = [src(PS), typed(T1), decl_only(V)]
         ; PS1 = (!V), atom(V), \+ data_cons(V) ->
-            Ann = [src(PS), typed(T1), decl_only(V), bang(d, V)]
+            Ann = [src(PS), typed(T1), decl_only(V), bang(d, V^(...!))]
+        ; PS1 = (!V), V = V1^_DUS, atom(V1), \+ data_cons(V1) ->
+            % XXXX valid_du_spec(DUS),
+            Ann = [src(PS), typed(T1), decl_only(V1), bang(d, V)]
         ;
             writeln('Error: illegal statement'(PS1 :: T)),
             V = '_dummy',
@@ -1474,6 +1555,8 @@ pstat_stat(PS, S) :-
         pstat_stat(PS1, S1),
         S1 = C1-Anns1,
         ( atom(V) ->
+            S2 = C1-[src(PS), bang(i, V^(...!))|Anns1]
+        ; V = VDUS^_, atom(VDUS) ->
             S2 = C1-[src(PS), bang(i, V)|Anns1]
         ;
             write('ERROR: nonvar after ! (ignored):'(PS1 ! V)),
@@ -1536,7 +1619,10 @@ pstat_eq_stat(PEl, PEr, S) :-
         % want *v1 = v2
         to_var(PEr, V2, ES2),
         ( PE1 = !V1, atomic(V1), \+ data_cons(V1) ->
-            combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1)], S)
+            combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1^(...!))], S)
+        ; PE1 = !V1, V1 = V1v^_DUS, atomic(V1v), \+ data_cons(V1v) ->
+            % XXXX valid_du_spec(DUS),
+            combine_stats(ES2, deref_eq(V1v, V2)-[src(PEl=PEr), bang(d, V1)], S)
         ; PE1 = V1, atomic(V1), \+ data_cons(V1) ->
             combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr)], S)
         ;
@@ -1545,15 +1631,10 @@ pstat_eq_stat(PEl, PEr, S) :-
         )
     ; 
         % if LHS is not * it should be a var
-        % or !var (for init of mutable vars)
-        % XXX if we don't insist on mutvars being declared with !
-        % then ! on LHS of = should be an error
         % (XXX could also allow type annotations here)
-        (   (   atom(PEl), Vl = PEl, Anns = [src(PEl=PEr)]
-            ;
-                PEl = (!Vl), atom(Vl), Anns = [src(PEl=PEr), bang(d, Vl)]
-            )
-        ->
+        ( atom(PEl) ->
+            Vl = PEl,
+            Anns = [src(PEl=PEr)],
             ( data_cons(Vl) ->
                 writeln('ERROR: constant on LHS of equation:'(Vl))
             ;
@@ -1618,7 +1699,8 @@ pstat_eq_stat(PEl, PEr, S) :-
                     propogate_anns(S1, S)
                 ; Arity = 1 ->
                     % XXX could count this as an error?
-                    S = eq_var(Vl, PEr1)-[bang(d, PEr1)|Anns]
+                    % XXX or support ^
+                    S = eq_var(Vl, PEr1)-[bang(d, PEr1^(...!))|Anns]
                 ;
                     writeln('Error: ! prefixing non-var/application :'(PEr)),
                     S = eq_var(Vl, '_err')-Anns
@@ -1733,8 +1815,11 @@ to_var(PE, V, ES) :-
                 combine_stats(empty_stat-[app_bang(PE1)], ES1, ES)
             ;
                 V = PE1,
-                ES = empty_stat-[bang(d, V)]
+                ES = empty_stat-[bang(d, V^(...!))]
             )
+        ; PE1 = PE1v^_DUS, atom(PE1v) ->
+                V = PE1v,
+                ES = empty_stat-[bang(d, PE1)]
         ; PE1 =.. [PE1F, _|_] ->
             to_var(PE1, V, ES1),
             combine_stats(empty_stat-[app_bang(PE1F)], ES1, ES)
@@ -1763,13 +1848,14 @@ to_star_bang_var(PE, V, ES) :-
         write('Error: need *! on LHS of := (added):'(PE)),
         nl,
         V = PE,
-        ES = empty_stat-[bang(d, V)]
+        ES = empty_stat-[bang(d, V^ref(!))]
     ; PE = (!PE1) ->
+        % XXX add support for explicit ^DUS?
         ( atom(PE1) ->
             write('Error: need * on LHS of := (added):'(PE)),
             nl,
             V = PE1,
-            ES = empty_stat-[bang(d, V)]
+            ES = empty_stat-[bang(d, V^ref(!))]
         ;
             write('Error: ! prefixing nonvar (ignored):'(PE)),
             nl,
@@ -1987,7 +2073,7 @@ add_last_anns(C0-Ann0, C-Ann, LSF, UVs0, UVs, IBVs0, IBVs) :-
     findall(LUV, (member(LUV, NUVs), \+ord_memberchk(LUV, UVs0)), LUVs),
     sort(NUVs, NUVs1),
     ord_union(NUVs1, UVs0, UVs),
-    findall(IBV, member(bang(i, IBV), Ann0), NIBVs),
+    findall(IBV, member(bang(i, IBV^_), Ann0), NIBVs),
     sort(NIBVs, NIBVs1),
     ord_union(NIBVs1, IBVs0, IBVs),
     Ann1 = [ibanged_later(IBVs0), last_use(LUVs), used_later(UVs0)|Ann0],
@@ -2339,7 +2425,7 @@ add_typed_anns_dcapp(Vl, F, TF, Args, TFArgs, TFR, Ann0, Ann, VTm0, VTm, PolyVs0
         % be N args and N arrows with implicit in the rightmost (see also wo
         % args below)
         (   Args \= [],
-            (member(I, ROIs) ; member(I, RWIs)),
+            (member(I, ROIs) ; member(I^_, RWIs)),
             \+ get_assoc(I, VTm0, _),
             writeln('Error: undeclared implicit argument: '(F, I)),
             write_src(Ann0),
@@ -2615,8 +2701,8 @@ copy_type_term(T0, T) :-
     deannotate_type(T0, T1),
     copy_term(T1, T).
 
-% strip sharing/mutability/implicit arg info from arrow types
-% currently doesn't(?) strip implicit arguments
+% strip sharing/mutability info from arrow types
+% doesn't strip implicit arguments
 deannotate_type(T0, T) :-
     ( var(T0) ->
         T = T0
@@ -2928,8 +3014,8 @@ filter_sharing_abs_member(PreSS, DUs, SS) :-
 
 % Share pair has path with var from list, or abstract
 sharing_abs_member(DUs, s(vp(V1, _), vp(V2, _))) :-
-    (   member(V1, [abstract(_)|DUs])
-    ;   member(V2, [abstract(_)|DUs])
+    (   member(V1^_, [abstract(_)^_|DUs])
+    ;   member(V2^_, [abstract(_)^_|DUs])
     ).
 
 % Get subset of sharing which has both paths with vars from list
@@ -2982,16 +3068,33 @@ check_banged(BVs, MVs, SS, Ann, Stat) :-
         true
     ).
 
+% Design for more precise DU analysis:
+% Banged vars now of the form v^duspec, where duspec specifies which
+% components may be updated.  We want an expressive duspec language that
+% (preferably) doesn't depend on the abstract domain. Potentially we can
+% start with a simple duspec language then expand it.  We want to specify
+% anything could be DU (like early Pawns versions), ref only (like the _lhs
+% specialisation introduced earlier)+ other stuff.  For now we could just say
+% what args of what DS could be mutable, including ref/1). Eventually
+% implement duspec language such as:
+% ! - empty path, du
+% ? - empty path, not du
+% ...s1 - any path followed by duspec s1 (... defined as prefix op)
+% du(s1,s2) - matches path with du; s1 & s2 are duspecs
+% s1/s2 - matches with duspecs s1 or s2
+% !s1 - empty path du + duspec s1 (need ! as prefix op)
+% Examples:
+% ...! = any subterm DU (default for args,...)
+% dc(!,?,!) = first and third args of dc at top level are DU
+% ref(!) = special case of above, for LHS of *!v := ...
+% ...dc(!,?,!) = first and third args of dc at lowest level
+% dc1(!)/dc2(!,?) = first arg of dc1 or dc2 at top level
+% dc1(!dc2(!,?),?) = first args of dc1 + d2 in first arg are DU
+% 
+% Start with first two...?
+
 % as above, specialised for single modified var on LHS of assignment
 % XX probably should bang LV even if its not used (or give warning)
-% XXXX should be more permissive here - we pass LV (plus things that
-% share with its updated component) to check_banged1, but check_banged1
-% will complain if other (not updated) components of LV share with
-% abstract because check_banged1 doesn't distinguish LV from other
-% updated vars and doesn't know about components.
-% Could avoid returning LV from should_bang_lhs and to extra checking
-% of LV here or rewrite check_banged1 so it uses variable components,
-% not just variables.
 check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
     (   setof(MVP, should_bang_lhs(LV, SS, MVP), VPs1) -> % Note setof can fail
         check_banged_lhs1(BVs, VPs1, SS, Ann, Stat)
@@ -3040,7 +3143,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
             true
         ),
         % ignore banged vars
-        \+ member(V, BVs),
+        \+ member(V^_, BVs),
         % must be an error...
         write('Error: variable '),
         write(V),
@@ -3094,7 +3197,7 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
             true
         ),
         % ignore banged vars
-        \+ member(V, BVs),
+        \+ member(V^_, BVs),
         % must be an error...
         write('Error: variable '),
         write(V),
@@ -3109,7 +3212,7 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
 
 % given list of varpaths which may be modified, and sharing set,
 % (nondeterministically) return var which may be modified
-% (could return var paths for more precision)
+% XXX! return var paths for more precision
 should_bang(MVs, SS, MV) :-
     member(vp(MV1, _P3), MVs),
     (   MV = MV1
@@ -4081,10 +4184,12 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     LVP = vp(V, vpe),
     map('X,vp(X,vpe)', Args, AVPs),
     findall(BV, member(bang(_, BV), Ann), Bs),
-    arrow_to_sharing_dus(Arity, RType, RFAs, Pre, APost, DUs, _, RWIs1, WOIs1),
+    arrow_to_sharing_dus(Arity, RType, RFAs, Pre, APost, DUDUs, _, RWDUIs1, WOIs1),
+    map(strip_duspec, RWDUIs1, RWIs1),
+    map(strip_duspec, DUDUs, DUs),
     RFAs = [R|FAs],
     % we only need to keep sharing info for result and DU args
-    % (including implicit ones)
+    % (including implicit rw and wo)
     append([WOIs1, RWIs1, DUs], AllDUs1),
     filter_sharing_member(APost, [R|AllDUs1], Postcond),
     % we need to rename the result + formal args (RFAs) as LVP,
@@ -4095,7 +4200,8 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     % in application we have [Res,CLA4,CLA3,Arg1,Arg2]
     % Note numbering of closure args - Arg2 will become CLA1 of the
     % result
-    RType = arrow(_, _, _, _, _, _, _, CLATs, ROIs, RWIs, WOIs),
+    RType = arrow(_, _, _, _, _, _, _, CLATs, ROIs, RWDUIs, WOIs),
+    map(strip_duspec, RWDUIs, RWIs),
     append(ROIs, RWIs, RORWIs),
     map('X,vp(X,vpe)', ROIs, ROVPs),
     map('X,vp(X,vpe)', RWIs, RWVPs),
@@ -4124,6 +4230,11 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     append([AArgs, ROVPs, RWVPs], AArgs1),
     rename_sharing(Pre, FAs1, AArgs1, PreSS),
     sort(PreSS, PreSS1),
+    % XXX!
+    % Bs has duspecs for each var, from bang() annotations
+    % DUs, DUVs, AllDUs don't (but we can get it from DUDUs+RWDUIs) 
+    % We will need it in check_banged (we want something like
+    % check_banged_lhs instead, which is more precise but for just one var)
     rename_vars(DUs, FAs, AArgs, DUVs),
     append(RWVPs, DUVs, AllDUs),
     check_banged(Bs, AllDUs, SS0, Ann, (LVP = app(Fn, AVPs))), % IO
@@ -4454,6 +4565,7 @@ check_ho_types1(Anns, RHS, LT, RT) :-
 % renaming
 % T1 as general as T2 if WOIs1 = WOIs2, RWIs1 >= RWIs2,
 % ROIs1+RWIs1 >= ROIs2
+% XXX! will need some extra work to handle duspec on rw properly
 check_ho_types_arrow(Anns, RHS, LType, RType) :-
     LType = arrow(LTTL, LTTR, LTBVs, _, _, _, _, _, _, _, _),
     RType = arrow(RTTL, RTTR, RTBVs, _, _, _, _, _, _, _, _),
@@ -4657,21 +4769,27 @@ alias_fn(Fn) :-
     % single component for sharing no data constructors
     smash_type_params(T),
     func_arity(Fn, Arity),
-    arrow_to_sharing_dus(Arity, T, RFAs, Precond, Postcond, BArgs, ROIs, RWIs, WOIs),
+    arrow_to_sharing_dus(Arity, T, RFAs, Precond, Postcond, BDUArgs, ROIs, RWDUIs, WOIs),
+    map(strip_duspec, RWDUIs, RWIs),
+    map(strip_duspec, BDUArgs, BArgs),
     fn_def_struct(Fn, Args, Stat, VTm),
     %
     % check all args which are banged in definition are banged in
     % declaration XX could delete if types are annotated with purity
     banged_vars(Stat, DUs),
+    sort(DUs, SDUs),
     map('X,vp(X,vpe)', AVs, Args),
     sort(AVs, SArgs),
-    ord_intersection(DUs, SArgs, DUArgs),
+    ord_intersection(SDUs, SArgs, DUArgs),
     sort(BArgs, SBArgs),
     ord_subtract(DUArgs, SBArgs, NDs),
-    ( NDs = [] ->
-        true
-    ;
+    ( setof(ND, (   member(ND^_, DUs),
+                    member(ND, Args),
+                    \+ member(ND^_, DUArgs)), NDs) ->
+        % NDs \= []
         writeln('Error: argument(s) should be declared mutable: '(NDs))
+    ;
+        true
     ),
     ord_intersection(DUs, ROIs, DUROIs),
     ( DUROIs = [] ->
@@ -4723,6 +4841,7 @@ alias_fn(Fn) :-
     % append([ROIs, RWIs, WOIs], Is),
     % map('X,vp(X,vpe)', Is, IPs),
     % append(IPs, ResArgs, AllResArgs),
+% print(yyx(SSelfs)), nl,
     ( alias_stat(Stat, VTm, SSI2, SS) ->
         % need to check for sharing between args+result which is not
         % declared in postcondition
@@ -4776,8 +4895,7 @@ banged_vars_1(C-Ann, Vs0, Vs) :-
     ( C = seq(S1, S2) ->
         banged_vars_1(S1, Vs0, Vs1),
         banged_vars_1(S2, Vs1, Vs2)
-    ;
-        C = cases(_, Cs),
+    ; C = cases(_, Cs) ->
         foldr(banged_vars_case, Vs0, Cs, Vs2)
     ;
         add_banged_vars(Ann, Vs0, Vs2)
@@ -4790,9 +4908,9 @@ add_banged_vars(Ann, Vs0, Vs) :-
     append(BVs, Vs0, Vs).
 
 % as above for case (arg order for foldr)
-banged_vars_case(Vs0, case_dc(_, _, _, S), Vs) :-
+banged_vars_case(case_dc(_, _, _, S), Vs0, Vs) :-
     banged_vars_1(S, Vs0, Vs).
-banged_vars_case(Vs0, case_def(S), Vs) :-
+banged_vars_case(case_def(S), Vs0, Vs) :-
     banged_vars_1(S, Vs0, Vs).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

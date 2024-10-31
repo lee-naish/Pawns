@@ -47,7 +47,7 @@ test2(ip) = {
     !test4(!i); % precond allows sharing with isdef
     !test3(!i); % XX precond violation
     !test3(!isdef);   % !i %  isdef shared with i XX
-    k = sharewithsv(!i) !isdef; 
+    k = sharewithsv(!i) !isdef; % XX isdef must be implicit rw
     dummy = i;
     ip
 }.
@@ -94,7 +94,7 @@ ret_sv(v) = {
     !init_isdef(42);
     ip = isdef;
     ip
-    % scope of isdef ends but alias escapes XXX
+    % scope of isdef ends but alias escapes XX
 }.
 
 ret_sv_val:: void -> ref(int)
@@ -215,6 +215,9 @@ scope_ro(ip) = {
     ip1
 }.
 
+% Note: parsed (currently) as int -> (ref(int) -> void implicit ...)
+% (may change)
+% tends to break if we call a fn that needs isdef
 test5 :: int -> ref(int) -> void
     implicit rw isdef
     sharing test5(i, !ip) = v

@@ -3,6 +3,7 @@
 % course you can break things this way).  They are mostly very simple
 % functions so we export the implementation and gcc will very likely inline
 % them.
+% XXX probably should add sharing info for things returning maybe at least
 
 export_imp
     io_needed,

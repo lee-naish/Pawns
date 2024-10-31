@@ -40,7 +40,8 @@ cordlist(x) = {
 % (could instead have pointer to pointer to list and clobber it)
 cordlist1 :: cb -> rbs -> rbs
     sharing cordlist1(!x,!p)=p1
-    % post (x=leaf(*p); p1=p).
+    pre x=leaf(*p)
+    post (x=leaf(*p); p1=p).
 cordlist1(x, p) = {
     cases x of {
 %     case empty:

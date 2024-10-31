@@ -195,6 +195,7 @@ foo5bug(b1) =
 % XX 'Error: incompatible precondition for '(return('V0'))
 % '  type is  '(maybe(bool) -> 
 % somewhat confusing error message with return('V0')
+% XXX also seems to switch on quoting????
 
 zw0:: f0 -> mbs -> mbs -> mbs
     sharing zw0(f,mbs1,mbs2)=rbs
