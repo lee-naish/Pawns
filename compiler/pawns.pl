@@ -97,7 +97,7 @@
 % XX try to tweek these so we can declare vars locally with :: but no
 % () (priority of :: should be low)
 :- op(2, fx, ...).
-:- op(4, xfx, (^)). % shouldn't break things; used for more precise DU 
+:- op(4, xfy, (^)). % shouldn't break things; used for more precise DU 
 :- op(7, fx, (!)).
 :- op(10, fy, (*)).
 :- op(10, fy, (**)). % for multiple indirection
@@ -109,6 +109,7 @@
 % :- op(700, xfx, (=)). % std
 :- op(705, xfx, (=)). % shouldn't break things; allows a = 1<2
 :- op(700, xfx, (<=)). % Prolog uses =<
+:- op(1150, fx, (du_spec)).
 :- op(1150, fx, (type)).
 :- op(1150, fx, (renaming)).
 :- op(1100, xfx, (with)).
@@ -178,6 +179,7 @@ share_anal :-
 % read source file and
 % assert everything XX (should pass it around as state).
 input_file(File) :-
+    retractall(du_spec(_, _)),
     retractall(imported(_)),
     retractall(prog_dcons(_)),
     retractall(c_fn_def(_, _)),
@@ -329,7 +331,9 @@ in_as(As) :-
     % can be declared static
     append([Ts2|ITss], Ts3),
     split(is_type_def, Ts3, TTDefs, Ts4),
-    split(is_renaming_def, Ts4, TRDefs, TOs),
+    split(is_renaming_def, Ts4, TRDefs, Ts5),
+    split(is_du_spec, Ts5, DUDefs, TOs),
+    map0(do_du_spec, DUDefs),
     split(is_fn_dec, TOs, TFDecs, TFDefs),
     map(es_as_type, TTDefs, ATDefs),
     map(es_as_fdef, TFDefs, AFDefs),
@@ -393,6 +397,10 @@ atom_of_input((C = _), A) :-
     functor(C, A, _).
 % atom_of_input((C : _), A) :- % old syntax
 %     functor(C, A, _).
+
+% checks if term is a duspec def
+% XXX more sanity checking
+is_du_spec((du_spec _)).
 
 % checks if term is an export def
 % XXX more sanity checking
@@ -501,6 +509,29 @@ to_export(EDs, (type L ---> R), TD) :-
     ;
         fail
     ).
+
+% for duspec names/shorthands
+:- dynamic((du_spec)/2).
+
+% expand named duspecs (XXX currently top level only)
+expand_du_spec(Name, DUS) :-
+    ( du_spec(Name, DUS) ->
+        true
+    ;
+        DUS = Name
+    ).
+
+% handle duspec naming
+% (assumes list; XXX just comma separated would be nicer)
+do_du_spec(du_spec(DUs)) :-
+    member(Name = DUS, DUs),
+    ( du_spec(Name, _) ->
+        writeln('DU spec name repeated: '(DUS))
+    ;
+        assert(du_spec(Name, DUS))
+    ),
+    fail.
+do_du_spec(_).
 
 % for imported things
 :- dynamic(imported/1).
@@ -3068,31 +3099,6 @@ check_banged(BVs, MVs, SS, Ann, Stat) :-
         true
     ).
 
-% Design for more precise DU analysis:
-% Banged vars now of the form v^duspec, where duspec specifies which
-% components may be updated.  We want an expressive duspec language that
-% (preferably) doesn't depend on the abstract domain. Potentially we can
-% start with a simple duspec language then expand it.  We want to specify
-% anything could be DU (like early Pawns versions), ref only (like the _lhs
-% specialisation introduced earlier)+ other stuff.  For now we could just say
-% what args of what DS could be mutable, including ref/1). Eventually
-% implement duspec language such as:
-% ! - empty path, du
-% ? - empty path, not du
-% ...s1 - any path followed by duspec s1 (... defined as prefix op)
-% du(s1,s2) - matches path with du; s1 & s2 are duspecs
-% s1/s2 - matches with duspecs s1 or s2
-% !s1 - empty path du + duspec s1 (need ! as prefix op)
-% Examples:
-% ...! = any subterm DU (default for args,...)
-% dc(!,?,!) = first and third args of dc at top level are DU
-% ref(!) = special case of above, for LHS of *!v := ...
-% ...dc(!,?,!) = first and third args of dc at lowest level
-% dc1(!)/dc2(!,?) = first arg of dc1 or dc2 at top level
-% dc1(!dc2(!,?),?) = first args of dc1 + d2 in first arg are DU
-% 
-% Start with first two...?
-
 % as above, specialised for single modified var on LHS of assignment
 % XX probably should bang LV even if its not used (or give warning)
 check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
@@ -3103,9 +3109,11 @@ check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
     ).
 
 % as above with all possibly modified vars
+% BVs is vars with duspecs attached, AMVs is all modified var paths
 check_banged1(BVs, AMVs, SS, Ann, Stat) :-
     % iterate over all members of AMVs
-    (   member(V, AMVs),
+    (   member(VP, AMVs),
+        VP = vp(V, VPC),
         % skip error messages about V* (introduced) vars
         (( atomic(V), % in case its abstract(_)
             name(V, VS),
@@ -3131,6 +3139,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         % note we need to check for sharing with abstract, not
         % V=abstract(_)
         % XXX VVP \= vpe ??? We avoid empty paths now anyway
+        % XXX! fix for duspec
         ( aliases(SS, vp(V, VVP), vp(abstract(_AT), _AVP)), VVP \= vpe ->
             write('Error: abstract variable '),
             print(V),
@@ -3142,11 +3151,13 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         ;
             true
         ),
-        % ignore banged vars
-        \+ member(V^_, BVs),
+        % ignore banged vars with duspecs that (definitely) allow
+        % DU for this path
+        % XXX! will need types at some point
+        \+ ( member(V^VDUS, BVs), du_spec_vpc_def_ok(VDUS, xxxtype, VPC)),
         % must be an error...
-        write('Error: variable '),
-        write(V),
+        write('Error: variable path '),
+        print(VP),
         write(' might be modified by '),
         print(Stat),
         nl,
@@ -3210,16 +3221,27 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
         true
     ).
 
+% XXX! now called with duspecs
+% Should pass in type also for better precision
 % given list of varpaths which may be modified, and sharing set,
-% (nondeterministically) return var which may be modified
-% XXX! return var paths for more precision
-should_bang(MVs, SS, MV) :-
-    member(vp(MV1, _P3), MVs),
-    (   MV = MV1
+% (nondeterministically) return var path which may be modified
+% XXX! returns var paths for more precision
+ % should_bang(MVs, SS, MV) :-
+should_bang(MVs, SS, MVP) :-
+    member(V1^DUS, MVs),
+    MVP1 = vp(V1, VP1),
+    member(s(MVP1, MVP1), SS),          % look for self-sharing
+    du_spec_vpc_poss_ok(DUS, xxxtype, VP1), % XXX! want poss_ok
+     % member(vp(MV1, _P3), MVs),
+    % member(MVP1, MVs),
+     % (   MV = MV1
+    (   MVP = MVP1
     ;
-        member(s(vp(MV1, _), vp(MV, _)), SS)
+         % member(s(vp(MV1, _), vp(MV, _)), SS)
+        member(s(MVP1, MVP), SS)
     ;
-        member(s(vp(MV, _), vp(MV1, _)), SS)
+         % member(s(vp(MV, _), MVP1), SS)
+        member(s(MVP, MVP1), SS)
     ).
 
 % as above, specialised for single modified var on LHS of assignment
@@ -3968,9 +3990,9 @@ rename_sharing([s(vp(N1, P1), vp(N2, P2))|SS], FAs, Args, SSArgs) :-
     rename_sharing(SS, FAs, Args, SSArgs1).
 
 % as above but just for vars which are DU
-% XXX support more general var paths for declaring DU eventually...
+% XXX! now support more general var paths for declaring DU
 rename_vars([], _,  _, []).
-rename_vars([PV|PVs], FAs, Args, [V1|Vs]) :-
+rename_vars([PV^DU|PVs], FAs, Args, [V1^DU|Vs]) :-
     nth0(N1, FAs, PV),
     nth0(N1, Args, V1),
     rename_vars(PVs, FAs, Args, Vs).
@@ -4222,6 +4244,8 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
 %     length(Dummies, ND), % need at least ND dummies; could have more
 %     map0(=(vp('_dummy',vpe)), Dummies),
     % append([[LVP], CLFnPs, AVPs], ResArgs),
+    % % map('X,vp(X,vpe)', CLFnVs, CLFnPs),
+    % % append(CLFnVs, Args, AArgs), % just want vars, not paths
     append(CLFnPs, AVPs, AArgs),
     % rename_sharing ignores sharing between vars which are not renamed
     % so we have to explicitly include implicit args, which are renamed
@@ -4235,8 +4259,10 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     % DUs, DUVs, AllDUs don't (but we can get it from DUDUs+RWDUIs) 
     % We will need it in check_banged (we want something like
     % check_banged_lhs instead, which is more precise but for just one var)
-    rename_vars(DUs, FAs, AArgs, DUVs),
-    append(RWVPs, DUVs, AllDUs),
+    map('X,vp(X,vpe)', CLFnVs, CLFnPs),
+    append(CLFnVs, Args, AArgVs), % just want vars, not paths
+    rename_vars(DUDUs, FAs, AArgVs, DUVs),
+    append(RWDUIs, DUVs, AllDUs),
     check_banged(Bs, AllDUs, SS0, Ann, (LVP = app(Fn, AVPs))), % IO
     % we include abstract with var for type so it matches any type
     % (but we check later the type is not void)
@@ -4771,26 +4797,44 @@ alias_fn(Fn) :-
     func_arity(Fn, Arity),
     arrow_to_sharing_dus(Arity, T, RFAs, Precond, Postcond, BDUArgs, ROIs, RWDUIs, WOIs),
     map(strip_duspec, RWDUIs, RWIs),
-    map(strip_duspec, BDUArgs, BArgs),
+    % map(strip_duspec, BDUArgs, BArgs),
     fn_def_struct(Fn, Args, Stat, VTm),
     %
     % check all args which are banged in definition are banged in
     % declaration XX could delete if types are annotated with purity
     banged_vars(Stat, DUs),
-    sort(DUs, SDUs),
     map('X,vp(X,vpe)', AVs, Args),
-    sort(AVs, SArgs),
-    ord_intersection(SDUs, SArgs, DUArgs),
-    sort(BArgs, SBArgs),
-    ord_subtract(DUArgs, SBArgs, NDs),
-    ( setof(ND, (   member(ND^_, DUs),
-                    member(ND, Args),
-                    \+ member(ND^_, DUArgs)), NDs) ->
-        % NDs \= []
-        writeln('Error: argument(s) should be declared mutable: '(NDs))
+    % we use setof to avoid duplicate error messages
+    (   setof(Msg, ND^DUSB^DUSA^ (
+            member(ND, AVs),              % ND is an argument
+            member(ND^DUSB, DUs),         % it's DU in fn body
+            ( member(ND^DUSA, BDUArgs) -> % it's declared DU in type sig
+                \+ duspec_subsumes(DUSA, DUSB),
+                Msg = 'Error: argument should be declared more mutable: '(ND,DUSA, DUSB)
+            ;
+                Msg = 'Error: argument should be declared mutable: '(ND)
+            )
+            ), Msgs),
+        member(Msg, Msgs),
+        writeln(Msg),
+        fail
     ;
         true
     ),
+    % XXX delete following once above works
+%     sort(DUs, SDUs),
+%     sort(AVs, SArgs),
+%     sort(BArgs, SBArgs),
+%     ord_intersection(SDUs, SArgs, DUArgs),
+%     ord_subtract(DUArgs, SBArgs, NDs),
+%     ( setof(ND, (   member(ND^_, DUs),
+%                     member(ND, AVs),
+%                     \+ member(ND^_, DUArgs)), NDs) ->
+%         % NDs \= []
+%         writeln('Error: argument(s) should be declared mutable: '(NDs))
+%     ;
+%         true
+%     ),
     ord_intersection(DUs, ROIs, DUROIs),
     ( DUROIs = [] ->
         true
@@ -4884,6 +4928,171 @@ alias_fn(Fn) :-
     ),
     fail.
 alias_fn(_).
+
+% Design for more precise DU analysis (duspec/DU specification):
+% Banged vars now of the form v^duspec, where duspec specifies which
+% components may be updated.  We want an expressive duspec language that
+% (preferably) doesn't depend on the abstract domain. Potentially we can
+% start with a simple duspec language then expand it.  We want to specify
+% anything could be DU (like early Pawns versions), ref only (like the _lhs
+% specialisation introduced earlier)+ other stuff.  For now we could just say
+% what args of what DS could be mutable, including ref/1). Eventually
+% implement duspec language such as:
+% ! - empty path, du
+% ? - empty path, not du
+% ...s1 - any path followed by duspec s1 (... defined as prefix op)
+% du(s1,s2) - matches path with du; s1 & s2 are duspecs
+% s1/s2 - matches with duspecs s1 or s2
+% !s1 - empty path du + duspec s1 (need ! as prefix op)
+% Examples:
+% ...! = any subterm DU (default for args,...)
+% dc(!,?,!) = first and third args of dc at top level are DU
+% ref(!) = special case of above, for LHS of *!v := ...
+% ...dc(!,?,!) = first and third args of dc at lowest level
+% dc1(!)/dc2(!,?) = first arg of dc1 or dc2 at top level
+% dc1(!dc2(!,?),?) = first args of dc1 + d2 in first arg are DU
+% 
+% Start with first two...?
+
+% check if first duspec is more general than second
+% (ie, du subterms of first spec is a superset of second)
+% XXX stub - best extend this, though it's not *so* important currently
+% as we don't infer duspec annotations on ! vars in statements and the
+% specs for DU of args should really just reflect those in statements
+% Messy, may succeed multiple times; need to be careful of non-termination.
+% XXX uses expand_du_spec at top level only - better to allow at all
+% levels of term and apply when src is read rather than here.
+duspec_subsumes(DUS1, DUS2) :-
+    expand_du_spec(DUS1, DUS3),
+    expand_du_spec(DUS2, DUS4),
+    duspec_subsumes1(DUS3, DUS4).
+
+% as above without expand_du_spec
+duspec_subsumes1(DUS, DUS).
+duspec_subsumes1(...!, _).
+duspec_subsumes1(_, ?).
+duspec_subsumes1(!, !).
+duspec_subsumes1(!_, !).
+duspec_subsumes1(!DUS1, !DUS) :-
+    duspec_subsumes1(DUS1, DUS).
+duspec_subsumes1(!DUS1, DUS) :-
+    duspec_subsumes1(DUS1, DUS).
+duspec_subsumes1(DUS, DUS1/DUS2) :-
+    \+ ( slash_member(DUS2, DUS1/DUS2),    % each member of DUS1/DUS2
+        \+ ( slash_member(DUS3, DUS),      % has a member of DUS
+            duspec_subsumes1(DUS3, DUS2))  % that subsumes it
+    ).
+duspec_subsumes1(DC1, DC2) :-
+    functor(DC1, F, N),
+    functor(DC2, F, N),
+    F \= '/',
+    F \= '...',
+    F \= !,
+    F \= ?,
+    DC1 =.. [F|As1],
+    DC2 =.. [F|As2],
+    map(duspec_subsumes1, As1, As2).
+
+% checks if duspec *definitely* allows DU for a given var path
+% XXX imprecise - may be paths that are ok but this fails
+% eg, du_spec_vpc_def_ok(cons(?,!), list(int), vpc(cons, 2, 2, vpe))
+% fails (due to type folding, the actual path may have several cons
+% cells; the duspec only covers the case where there is a single cons
+% cell. If we use ...cons(?,!) instead, the duspec covers all cases so
+% du_spec_vpc_def_ok(...cons(?,!), list(int), vpc(cons, 2, 2, vpe))
+% succeeds.
+% XXX best use type at some point so we can deal with folding better.
+% Eg, du_spec_vpc_def_ok(just(!), maybe(int), vpc(just, 1, 1, vpe))
+% should succeed (but currently fails) since the path is not folded for
+% this type.
+% Currently (to be safe) we only data constructors immediately inside '...'
+% and ref.
+% XXX! should allow ! before data cons (XXX fix operator priority etc
+% for ...!foo), nested data cons for non-recursive types at least.
+du_spec_vpc_def_ok(DUS, Type, VPC) :-
+    expand_du_spec(DUS, DUS1),
+    du_spec_vpc_def_ok1(DUS1, Type, VPC).
+
+% as above with expand_du_spec done
+du_spec_vpc_def_ok1(!, _Type, vpe).
+du_spec_vpc_def_ok1(!_, _Type, vpe).
+du_spec_vpc_def_ok1(!DUS, _Type, VPC) :-
+    du_spec_vpc_def_ok1(DUS, _, VPC).
+% du_spec_vpc_def_ok1(...DUS, _Type, VPC) :-
+%     app_vpc(_, VPC1, VPC),
+%     du_spec_vpc_def_ok1(DUS, _, VPC1).
+du_spec_vpc_def_ok1(...DUS, _Type, VPC) :-
+    functor(DUS, F, N),
+    ( DUS = ! ->
+        true
+    ;
+        F \= '/',
+        F \= '...',
+        F \= ?,
+        app_vpc(_, vpc(F, N, A, vpe), VPC),
+        arg(A, DUS, !)
+    ).
+% below only safe if there is no recursion through (folding of) ref/1
+du_spec_vpc_def_ok1(ref(!), _Type, vpc('_ref', 1, 1, vpe)).
+du_spec_vpc_def_ok1(ref(DUS), _Type, vpc('_ref', 1, 1, VPC)) :-
+    du_spec_vpc_def_ok1(DUS, _T, VPC).
+
+% checks if duspec *possibly* allows DU for a given var path
+% XXX imprecise - may be paths that are not ok but this succeeds
+% eg, du_spec_vpc_poss_ok(cons(?,!), list(int), vpc(cons, 2, 2, vpe))
+% fails (due to type folding, the actual path may have several cons
+% cells; the duspec only covers the case where there is a single cons
+% cell. If we use ...cons(?,!) instead, the duspec covers all cases so
+% du_spec_vpc_poss_ok(...cons(?,!), list(int), vpc(cons, 2, 2, vpe))
+% succeeds.
+% XXX best use type at some point so we can deal with folding better.
+% Eg, du_spec_vpc_poss_ok(just(!), maybe(int), vpc(just, 1, 1, vpe))
+% should succeed (but currently fails) since the path is not folded for
+% this type.
+% Currently (to be safe) we only data constructors immediately inside '...'
+% and ref.
+% XXX! should allow ! before data cons (XXX fix operator priority etc
+% for ...!foo), nested data cons for non-recursive types at least.
+du_spec_vpc_poss_ok(DUS, Type, VPC) :-
+    expand_du_spec(DUS, DUS1),
+    du_spec_vpc_poss_ok1(DUS1, Type, VPC).
+
+% as above with expand_du_spec done
+du_spec_vpc_poss_ok1(!, _Type, vpe).
+du_spec_vpc_poss_ok1(!_, _Type, vpe).
+du_spec_vpc_poss_ok1(!DUS, _Type, VPC) :-
+    du_spec_vpc_poss_ok1(DUS, _, VPC).
+du_spec_vpc_poss_ok1(...DUS, _Type, VPC) :-
+    app_vpc(_, VPC1, VPC),
+    du_spec_vpc_poss_ok1(DUS, _, VPC1).
+du_spec_vpc_poss_ok1(DUS1, _Type, VPC) :-
+    ( DUS1 = ref(_) -> % convert ref/1 to '_ref/1'
+        F1 = '_ref',
+        N = 1
+    ;
+        functor(DUS1, F, N),
+        F \= '!',
+        F \= '/',
+        F \= '...',
+        F \= ?,
+        F1 = F
+    ),
+    % vpc(F1, N...) could be anywhere in path due to folding
+    % (XXX make more precise with types)
+    app_vpc(_, vpc(F1, N, A, VPC1), VPC),
+    arg(A, DUS1, DUS2),
+    du_spec_vpc_poss_ok1(DUS2, _, VPC1).
+
+% return members of A1/A2/A3 etc
+slash_member(A, AS) :-
+    ( AS = AS1/AS2 ->
+        (   slash_member(A, AS1)
+        ;
+            slash_member(A, AS2)
+        )
+    ;
+        A = AS
+    ).
 
 % get banged vars in stat
 banged_vars(S, Vs) :-
