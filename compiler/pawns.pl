@@ -6,26 +6,14 @@
 % This file is too long and the structure within it is not understood -
 % it should be broken up into separate modules etc...
 
+% XXX need to FIX sharing analysis for cases ++ (see paper)
+% (sharing between different args of DC)
+
 % XXX see Bugs file for more things to fix plus XXX here and in *.pns
 % elsewhere
 
-% XXXX Error: precondition violation:'(bst_insert(V7,t),s(t.node/3.1,abstract(bst)))
-% in bst_count.pns - self/abstract sharing bug?????
-% Similar in des/*
-
-% XXXX rethink operator precedence of implicit so (hopefully) we don't need
-% t1 -> (t2 -> t3) implicit ...
-% We want implicit tied to outer arrow:
-% ?- display((foo :: t1 -> (t2 -> t3) implicit rw io)).
-% ::(foo,->(t1,implicit(->(t2,t3),rw(io))))
-% ?- display((foo :: t1 -> t2 -> t3 implicit rw io)).
-% ::(foo,->(t1,->(t2,implicit(t3,rw(io))))) - problem since its the inner
-% arrow, which we want to allow but it means something different (a function
-% that uses no state variables but returns an io function)
-% Maybe we could have above parsed as
-% ::(foo,implicit(t1 -> t2 -> t3, rw io)) then converted to first form
-
-% XXX need to FIX sharing analysis for cases ++ (see paper)
+% ??? rethink operator precedence of implicit so (hopefully) we don't need
+% t1 -> (t2 -> t3) implicit ...  See comments elsewhere (OK)
 
 % XXX need to FIX checking of ! in statements: distinguish between
 % direct and indirect: var shared with du arg must have ibang for type
@@ -50,39 +38,35 @@
 % If we call f::int -> int -> int implicit wo svwo, rw svrw with two
 % arguments its all clear - svwo will get defined (so we must save the old
 % value before this call end restore it before we return), svrw must be
-% defined already and it may be used and modified.
-% XXXX Nope! implicit is parsed to be attached to rightmost (inner) arrow
-% currently so we need f::int -> (int -> int) implicit wo svwo, rw svrw
-% However, what if f is
+% defined already and it may be used and modified.  However, what if f is
 % called with just one argument? If it's defined with two arguments we just
 % create a closure and nothing is done until we call the closure later (if at
 % all). If f is defined with one argument and returns a closure, potentially
 % it can do some things then more things are done when we call the closure
-% later. For example, if the first call defines svwo and reads/updates svrw and
-% the second call just reads svrw, the declaration should refined to
-% f::int -> (int -> int implicit wo svwo, rw svrw) implicit ro svrw
-% If this function is called with two arguments we would have to combine the
-% different implicit declarations, the ro being subsumed by the rw (and if
-% there were two separate wo svwo declarations we should end up with a
-% redefinition error.  However, "Hyper-saturated applications not yet
-% supported", so this is future work.
-% But could we have nested implicit declarations like that for a function
-% defined with two arguments? Potentially, but lets avoid it for now - should
-% give an error if the function has implicit arguments declared in any but
-% the last "outermost" arrow (higher order function arguments with implicit
-% arguments are ok).
+% later. For example, the first call may or may not define svwo and
+% reads/updates svrw.
+% See comments in canon_type_name for how this is handled - there is a
+% default way of inheriting state vars from rightmost arrows to other
+% arrows but it can be overridden by (nested) declarations of implicit
+% args on multiple arrows.
 % Do we need to include sharing info for implicit args in closures
 % (thats what lead us down a rabbit hole...)? Implicit vars are not
 % actually there but update of them will effectively change the value of
 % the closure in some sense. However, when the closure is actually
 % called it will have an ! annotation anyway and it should be clear it
-% uses the current version of the state vars. The only main question is
-% whether we need extra explicit info such as sharing in postconditions
-% or extra ! annotations for things like *!sv := val !closurefn (where
-% closurefn is a closure that has sv implicit).  Latter I don't think so
-% (! on call to closurefn is sufficient) and former also OK I think
-% since return type has implicit in it.  So answer can be NO.
-% it more 
+% uses the current version of the state vars. Two questions:
+% 1) Do we need extra explicit info such as sharing in postconditions?
+% No - return type has implicit in it and that should be sufficient.
+% 2) Do we need extra ! annotations for things like *!sv := val !closurefn
+% (where closurefn is a closure that has sv implicit)?
+% No again: ! on call to closurefn is sufficient.
+% Note we *could* answer yes to these questions, making the source code
+% a bit more explicit about things (and the compiler a bit more
+% complicated).  With the current choice, programmers should be extra
+% mindful when using closures that have implicit arguments and note that
+% implicit arguments are not really passed around, they are basically
+% global variables.  From the semantics point of view this may cause
+% some complications.
 
 
 
@@ -1077,7 +1061,7 @@ cond_share(VTm0, PS, SS0, SS) :-
 % XX
 % XX we have a fake function called closure for pre/postconds only -
 % handled specially for handling sharing of closure arguments
-builtin_fdec((!io :: ref(void))). % XXXX should be ref(ref(void/opaque_type))???
+builtin_fdec((!io :: ref(ref('_bot')))). % '_bot' stops prying eyes
 builtin_fdec((closure :: _A -> _B sharing f(a)=b pre nosharing post
 nosharing)).
 builtin_fdec((not :: bool -> bool)).
@@ -1136,7 +1120,7 @@ builtin_tdef(void, [dcons(void, [])]).
 % this type). We use list('_bot') to generate type paths etc in this
 % case.
 builtin_tdef('_bot', []).
-builtin_tdef(int, [dcons(xyzzy, [])]).
+builtin_tdef(int, [dcons(xyzzy, [])]). % XXX
 builtin_tdef(bool, [dcons(false, []), dcons(true, [])]).
 builtin_tdef(ref(T), [dcons('_ref', [T])]).
 builtin_tdef(list(T), [dcons(nil, []), dcons(cons, [T, list(T)])]).
@@ -2889,7 +2873,7 @@ dc_type(DC, Arity, TDC, TArgs) :-
 % sharing representation later (possibly multiple times, so we can
 % handle multiple instances of higher order functions) XX
 %
-% This can be called with non-gound types, such as list(list(_)), which
+% This can be called with non-ground types, such as list(list(_)), which
 % previously caused problems; we now replace type vars with ref(void) in
 % the struct created (XXX should test with tricky polymorphic code more)
 type_struct(T0, S) :-
@@ -3839,35 +3823,36 @@ fold_type_path_sum(TS, P, TP1) :-
 % Note that for recursive types we have to be careful.  For example, for
 % binary trees with data in leaves, DC branch/2 matches leaf/1 because
 % (with current precision of paths) the args of branch/2 are sum_ref_anc
-% nodes which are the same as the empty path.
+% nodes which are the same as the empty path. The type struct is passed
+% in.
 % Easiest to express negatively..
 % Maybe fix this so we use var paths as noted somewhere?
 % XX does it really have to be this complicated?/can we refactor?
 % XXXXX check with new path code with no _ref made explicit etc ZZZ
-alias_var_dcons_ok(Var, DC, Arity, SP) :-
-    \+ alias_var_dcons_to_rm(Var, DC, Arity, SP).
+alias_var_dcons_ok(Var, TS, DC, Arity, SP) :-
+    \+ alias_var_dcons_to_rm(Var, TS, DC, Arity, SP).
 
 % Succeeds if we want to drop this alias pair
-alias_var_dcons_to_rm(Var, _DC, 0, s(vp(Var, _), _)).
-alias_var_dcons_to_rm(Var, _DC, 0, s(_, vp(Var, _))).
-alias_var_dcons_to_rm(Var, DC, Arity, s(vp(Var, vpc(DC1, Arity1, _, _)), _)) :-
-    (   DC \= DC1
-    ;
-        Arity \= Arity1
-    ),
-    \+ has_ref_anc(DC, Arity).  % XXXX can delete this??
-alias_var_dcons_to_rm(Var, DC, Arity, s(_, vp(Var, vpc(DC1, Arity1, _, _)))) :-
-    (   DC \= DC1
-    ;
-        Arity \= Arity1
-    ),
-    \+ has_ref_anc(DC, Arity).  % XXXX can delete this??
+alias_var_dcons_to_rm(Var, _TS, _DC, 0, s(vp(Var, _), _)).
+alias_var_dcons_to_rm(Var, _TS, _DC, 0, s(_, vp(Var, _))).
+alias_var_dcons_to_rm(Var, TS, DC, Arity, s(vp(Var, vpc(DC1, Arity1, _, _)), _)) :-
+    \+ ( DC = DC1, Arity = Arity1 ),
+    \+ has_ref_anc(TS, DC, Arity).
+alias_var_dcons_to_rm(Var, TS, DC, Arity, s(_, vp(Var, vpc(DC1, Arity1, _, _)))) :-
+    \+ ( DC = DC1, Arity = Arity1 ),
+    \+ has_ref_anc(TS, DC, Arity).
 
 % check if DC/Arity is in type with recursion to node at or above this
 % DC/Arity.  Eg for branch/2 its true.
 % May succeed more than once (but we only call this inside \+)
-has_ref_anc(DC, Arity) :-
-    type_struct_c(_Type, sum(_T, Prods)),  % XX need search to find type:-(
+% XXXX problem with some builtin types, including ref. Even with
+% rectype.pns this fails for ref/1.  Best pass type in also if possible
+% - most refs should be ok, even when we have some types with recursion
+% through ref/1.  Uses type_struct_c which is only the cached types -
+% may not include all relevant types. type_struct can be called with
+% non-ground types but vars get instantiated to ref(void) so it can't be
+% used as a generator here.
+has_ref_anc(sum(_T, Prods), DC, Arity) :-
     Prod = prod(DC, Arity, Sums),
     member(Prod, Prods),
     member(Sum, Sums),
@@ -4690,21 +4675,30 @@ check_ho_types_arrow(Anns, RHS, LType, RType) :-
 
 %%%%%%
 % XXX add case_def handling
+% XXXX add stuff to handle cyclic terms + ??sharing between args
 % case var of ... dcons(...) ->
-% We know the data constructor for this var, so we filter out any
-% other data constructors for this var from the current alias set to get
-% new set.  Also need to add aliases for paths within var + args of
-% data constructor
+% Need to add aliases for paths within var + ags of dcons.
+% We know the data constructor for this var, so we can filter out
+% other data constructors for this var from the current alias set in
+% some cases. Have to be careful of folding though: eg, if dcons is
+% branch/2 and we have sharing in a leaf component of var we *can't*
+% delete the sharing because a branch/2 term can have leaf components
+% within it (paths starting with leaf/1 can represent subterms of terms
+% with branch/2 at the top level). We can't remove sharing with a data
+% constructor that has a ref_anc node, pointing back to the data
+% constructor or something above it. For leaf/1 we *can* remove branch/2
+% sharing, for nil we can remove cons sharing and for left/1 we can
+% remove right/1 (and vice versa).
+% Not sure what following means (must ave a typo somewhere):
 % Best use var path rather than var?
 % Can we do the following at some stage?: if we have a var xs which
 % is (x:xs1) and x is true and xs is [], all the aliasing of *xs* should
 % be deleted (x and xs1 should be a var path starting with x rather than
 % separarate vars, maybe).
 % Worth looking at some examples to consider precision XX
-% XXXX add stuff to handle cyclic terms + ??sharing between args
 alias_stat_case(Var, VTm, T, SS0, case_dc(DC, Arity, As, S), SS) :-
-    filter(alias_var_dcons_ok(Var, DC, Arity), SS0, SS1),
     type_struct(T, TS),
+    filter(alias_var_dcons_ok(Var, TS, DC, Arity), SS0, SS1),
     TS = sum(_, Ps),
     member(prod(DC, Arity, Sums), Ps),
     eq_case_args(As, Sums, TS, 1, Var, DC, Arity, SS0, SSN),
@@ -4725,24 +4719,15 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
     % They must be a reference to the top level, sum_ref_anc(_, 2), or a
     % reference to another type, sum_ref(...).
     (   Sum = sum_ref(RTN1, _Sum1),
-        % need type_struct call to get sum_ref_anc right
-        type_struct(RTN1, RSum)
+        type_struct(RTN1, RSum), % needed to get sum_ref_anc in RSum right
+        Pl1 = vpc(DC, Arity, A, vpe) % use only paths with DC/Arity at start
     ;
-        Sum = sum_ref_anc(_, 2),
-        LSum = sum(TSN, _), % extract parent info to construct arg type
-                            % XXX can get from sum_ref_anc/2 now?
-        % XXX need type_struct here if there is recursion through ref
-        % and folding is used??
-        RSum = sum_ref(ref(TSN), LSum)
+        Sum = sum_ref_anc(TSN, 2),
+        type_struct(TSN, RSum), % needed to get sum_ref_anc in RSum right
+        Pl1 = vpe % use all paths in Vl due to type folding
     ),
-    % we may also need to fold path for Vl ???
-    % - shouldn't be necessary now because empty paths are avoided
-    % Pl1 = vpc(DC, Arity, A, vpc('_ref', 1, 1, vpe)),
-    Pl1 = vpc(DC, Arity, A, vpe),
-    Pl2 = Pl1,
-    VPl = vp(Vl, Pl2),
+    VPl = vp(Vl, Pl1),
     VPr = vp(Vr, vpc('_ref', 1, 1, vpe)),
-    % VPr = vp(Vr, vpe),
     findall(LP, var_path_shared(SS0, VPl, LP), LPs),
     % could move this earlier
     ( LPs = [] ->
@@ -4750,7 +4735,7 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
     ;
         true
     ),
-    mk_alias_pair(VPr, VPr, S), % self-alias
+    mk_alias_pair(VPr, VPr, S), % self-alias (not needed???)
     % left and right a bit confused - in rpath_aliases left is the new
     % var being bound and right is the existing var; for case the new
     % vars being bound are textually after the existing var
