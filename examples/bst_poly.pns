@@ -47,49 +47,6 @@ list_bst(xs) = {
     return(*tp)
 }.
 
-% Dodgey version which could violate type preservation???
-% Error detected during type checking
-bug1_list_bst :: ints -> ibst
-    sharing list_bst(xs) = xt
-    pre xs = abstract
-    post nosharing.
-bug1_list_bst(xs) = {
-    *tp = mt;               % tp :: ref(bst(T))
-    ilist_bst_du(xs, (<=), !tp);   % mutates tp to ref(ibst)
-    % tp types is instantiated to ref(ibst) so any subsequent
-    % use of tp here in context where ref(bst(T)) expected, gives a type error
-    return(*tp)
-}.
-
-% Dodgey version which could violate type preservation.
-% Error detected during sharing analysis
-bug2_list_bst :: ints -> ibst
-    sharing list_bst(xs) = xt
-    pre xs = abstract
-    post nosharing.
-bug2_list_bst(xs) = {
-    *tp1 = mt;                  % tp1 :: ref(bst(T))
-    tp2 = (tp1 :: ref(ibst));   % cast tp1 to get tp2
-    % tp2 = tp1;
-    % "Error: sharing of cast variable later implicitly mutated"
-    % not really a need for this cast now that types get further instantiated
-    ilist_bst_du(xs, (<=), !tp2) !tp1; % tp1 implicitly smashed
-    % potential use of tp1 here in context where ref(bst(T)) expected,
-    % but tp1 is now a ref(ibst) so type preservation would be violated
-    *tp2
-}.
-
-% Attempt to use polymorphic HO code without renaming.
-% The polymorphic code has list and tree elements sharing and the list
-% cannot be abstract since the tree is updated (the elements are not
-% actually updated but the declarations are not precise enough to convey
-% that). Also demonstrates renaming+with
-bug3_list_bst :: ints -> ibst.
-renaming
-    bug3_list_bst = list_bst
-    with
-    list_bst_du = ilist_bst_du.
-
 % we rename the polymorphic code and use an instance of the types and
 % different sharing (the list abstract but not sharing with the tree)
 renaming
@@ -105,6 +62,58 @@ ibst_insert_du :: int -> (int -> int -> bool) -> ribst -> void
     sharing ibst_insert_du(x, leq, !tp) = v
     pre nosharing
     post nosharing.
+
+% specification of precise DU info for list_bst_pdu and bst_insert_pdu
+% The arg of the top level ref is DU, as are the left and right subtrees of a
+% node.  The tree elements are not touched, so they can potentially be
+% abstract.
+du_spec [
+    subt = ref(!...node(!,?,!)) % ref+subtrees can be DU but not elements
+    ].
+
+% Destructively add list of elements to tree we have ptr to.
+% In general there will be sharing between list and tree elements and
+% because the tree is destructively updated, the list (and its elements).
+% This version allows abstract sharing due to more precise duspec.
+% (compare with older list_bst_du, written before precise duspec)
+list_bst_pdu :: list(T) -> (T -> T -> bool) -> ref(bst(T)) -> void
+    sharing list_bst_pdu(xs, letest, !tp^subt) = v
+    pre cases xs of {case cons(x, xs1): *tp = node(mt, x, mt)}
+    % post cases xs of {case cons(x, xs1): *tp = node(mt, x, mt)}.
+    post nosharing.
+    % would be nice to be able to avoid cases and use eg
+    % xs = cons(x, nil); *tp = node(mt, x, mt)
+list_bst_pdu(xs, letest, tp) = {
+    cases xs of {
+    case cons(x, xs1):
+	% need !xs below for polymorphic version, or any instance
+	% where elements are not atomic
+        bst_insert_pdu(x, letest, tp) !tp^subt;
+        list_bst_pdu(xs1, letest, tp) !tp^subt;
+        return
+    case nil:
+        return
+    }
+}.
+
+% destructively add element to tree we have ptr to
+% - traverse down to leaf and clobber it (while loop would be nice?)
+bst_insert_pdu :: T -> (T -> T -> bool) -> ref(bst(T)) -> void
+    sharing bst_insert_pdu(x, letest, !tp^subt) = v
+    pre *tp = node(mt, x, mt)
+    post nosharing.
+    % post *tp = node(mt, x, mt).
+bst_insert_pdu(x, letest, tp) = {
+    cases *tp of {
+    case mt:
+        *tp := node(mt, x, mt) !tp^subt
+    case node(*lp, n, *rp):
+        if letest(x, n) then
+            bst_insert_pdu(x, letest, lp) !lp^subt!tp^subt
+        else
+            bst_insert_pdu(x, letest, rp) !rp^subt!tp^subt
+    }
+}.
 
 % Destructively add list of elements to tree we have ptr to.
 % In general there will be sharing between list and tree elements and
@@ -153,6 +162,50 @@ bst_insert_du(x, letest, tp) = {
             bst_insert_du(x, letest, !rp) !tp
     }
 }.
+
+% Dodgey version which could (have) violated type preservation
+% Now ok as type is cast automatically(?)
+bug1_list_bst :: ints -> ibst
+    sharing list_bst(xs) = xt
+    pre xs = abstract
+    post nosharing.
+bug1_list_bst(xs) = {
+    *tp = mt;               % tp :: ref(bst(T))
+    ilist_bst_du(xs, (<=), !tp);   % mutates tp to ref(ibst)
+    % tp type is instantiated to ref(ibst) so any subsequent
+    % use of tp here in context where ref(bst(T)) expected, gives a type error
+    return(*tp)
+}.
+
+% Dodgey version which could violate type preservation.
+% Error detected during sharing analysis
+bug2_list_bst :: ints -> ibst
+    sharing list_bst(xs) = xt
+    pre xs = abstract
+    post nosharing.
+bug2_list_bst(xs) = {
+    *tp1 = mt;                  % tp1 :: ref(bst(T))
+    tp2 = (tp1 :: ref(ibst));   % cast tp1 to get tp2
+    % tp2 = tp1;
+    % "Error: sharing of cast variable later implicitly mutated"
+    % not really a need for this cast now that types get further instantiated
+    ilist_bst_du(xs, (<=), !tp2) !tp1; % tp1 implicitly smashed
+    % potential use of tp1 here in context where ref(bst(T)) expected,
+    % but tp1 is now a ref(ibst) so type preservation would be violated
+    *tp2
+}.
+
+% Attempt to use polymorphic HO code without renaming.
+% The polymorphic code has list and tree elements sharing and the list
+% cannot be abstract since the tree is updated (the elements are not
+% actually updated but the declarations are not precise enough to convey
+% that). Also demonstrates renaming+with
+bug3_list_bst :: ints -> ibst.
+renaming
+    bug3_list_bst = list_bst
+    with
+    list_bst_du = ilist_bst_du.
+
 
 % print all elements of tree (inorder, no indentation etc to show tree
 % structure).

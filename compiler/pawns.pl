@@ -12,6 +12,15 @@
 % XXX see Bugs file for more things to fix plus XXX here and in *.pns
 % elsewhere
 
+% XXX using data constructor as fn makes things go crazy
+% map(t2, [true, false, true], Ps1); in duspec.pns
+
+% XXX If reading input gets scrambled it seems an infinite loop is
+% possible (duspec.pns)
+% Error: undefined type ......
+% Error: type error in var equality/assignment:(((p::ref(_134942)),(V4::list(_134446))))
+%   source: *p=cons(abstract,nil) 
+
 % ??? rethink operator precedence of implicit so (hopefully) we don't need
 % t1 -> (t2 -> t3) implicit ...  See comments elsewhere (OK)
 
@@ -189,12 +198,15 @@ input_file(File) :-
         % (not ideal but it means we get renaming of type vars for
         % free).  Later we convert them to a reprentation suited to
         % sharing analysis (done on demand and asserted also)
-        (   builtin_tdef(T, D)
+        % These clauses have no body *except* for '_type_param', which
+        % is fudged (see builtin_tdef).
+        (   clause(builtin_tdef(T, D), TdefBody)
         ;
             member(tdef(T0,D0), As),
-            canon_tdef(tdef(T0,D0), tdef(T,D))
+            canon_tdef(tdef(T0,D0), tdef(T,D)),
+            TdefBody = true
         ),
-        assert(tdef(T, D)),
+        assert(tdef(T, D) :- TdefBody),
         % member(tdef(T1, _), TDs), % nondet
         % tdef_tdef_struct(TDs1, T1, type_struct_c(T1, S)),
         % assert(type_struct_c(T1, S)),
@@ -1106,6 +1118,25 @@ builtin_func_arity(==, 2).
 builtin_func_arity(apply, 2).
 
 % XX
+% builtin_tdef('_type_param'(_T), [dcons('_type_param', [void])]).
+% we fudge things to get different data constructors for different type
+% parameters (which are numbered), avoiding the potential for bogus
+% sharing between terms of non-identical types.
+% Current code for dc_type calls builtin_tdef with a var as the
+% first arg, so there is an extra hack to avoid name being called with
+% both arguments variables.  We could use a separate (faster) lookup for
+% dc_type that avoids this.  It doesn't have have to work for these
+% fudged data constructors - just the ones that can appear in source
+% code (its used in processing case statements). Case statement
+% processing seems like it might be the problem area for bogus sharing
+% also, so if that is fixed we may be able to go back to the commented
+% out version above.
+builtin_tdef(TPN, [dcons(DC, [void])]) :-
+    nonvar(TPN),
+    TPN = '_type_param'(N),
+    name(N, NCs),
+    append(`_type_param_`, NCs, DCCs),
+    name(DC, DCCs).
 % XXX maybe void should be called unit but we are inflenced by C.
 % Type void it has one value (void) so it requires
 % zero bits to represent it. Its a bit special in the translation to C
@@ -1127,7 +1158,6 @@ builtin_tdef(list(T), [dcons(nil, []), dcons(cons, [T, list(T)])]).
 builtin_tdef(maybe(T), [dcons(nothing, []), dcons(just, [T])]).
 builtin_tdef(either(T1,T2), [dcons(left, [T1]), dcons(right, [T2])]).
 builtin_tdef(pair(T1,T2), [dcons(t2, [T1, T2])]). % XX tuple naming?
-builtin_tdef('_type_param'(_T), [dcons('_type_param', [void])]).
 % we have a _closure type for runtime representation of closures
 % XXX add enough cases here (or assert separately) for max_cl_args
 % or allow general case and/or optimise some cases
@@ -3124,7 +3154,12 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         % V=abstract(_)
         % XXX VVP \= vpe ??? We avoid empty paths now anyway
         % XXX! fix for duspec
-        ( aliases(SS, vp(V, VVP), vp(abstract(_AT), _AVP)), VVP \= vpe ->
+        (   aliases(SS, vp(V, VVP), vp(abstract(_AT), _AVP)),
+            VVP \= vpe,
+            % ignore if V is a banged var and duspec doesn't include VVP
+            member(V^VDUS, BVs),
+            du_spec_vpc_poss_ok(VDUS, xxxtype, VVP)
+        ->
             write('Error: abstract variable '),
             print(V),
             write(' may be modified by '),
@@ -3215,7 +3250,7 @@ should_bang(MVs, SS, MVP) :-
     member(V1^DUS, MVs),
     MVP1 = vp(V1, VP1),
     member(s(MVP1, MVP1), SS),          % look for self-sharing
-    du_spec_vpc_poss_ok(DUS, xxxtype, VP1), % XXX! want poss_ok
+    du_spec_vpc_poss_ok(DUS, xxxtype, VP1),
      % member(vp(MV1, _P3), MVs),
     % member(MVP1, MVs),
      % (   MV = MV1
@@ -4461,7 +4496,7 @@ var_path_shared(Ss, vp(V, VP), PSuff) :-
 % abstract(maybe(int)) is used as a fake variable that may share with any
 % maybe(int) component of an abstract var. Note we could potentially
 % avoid abstract sharing for atomic types but currently include it so
-% x=abstract; y=abstract results in all components ox x and y sharing.
+% x=abstract; y=abstract results in all components of x and y sharing.
 % XXX re-think and document all the cases here - has been modified a bit
 % with new type paths/folding regime
 rpath_aliases([], _, _, _, _, []).
@@ -4911,6 +4946,7 @@ alias_fn(Fn) :-
         write('Oops! alias_stat failed :-('),
         nl
     ),
+    writeln('sharing at end'(SS)),
     fail.
 alias_fn(_).
 
