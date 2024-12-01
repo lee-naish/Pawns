@@ -1,5 +1,12 @@
 Incomplete list of bugs/limitations
 
+    % XXX type error (q, not *q) -> Oops! alias_stat failed!
+    % post mbs = mbs1. % XXX type error not detected (-> fail)
+in duspec.pns
+
+ % **!g2r := r2rc2(c2ra); % XXX Error: function call as LHS of := (ignored)(**!g2r)
+rectype.pns
+
 See XXX in code
 
 Check C code output where var is declared in different branches of if/etc -

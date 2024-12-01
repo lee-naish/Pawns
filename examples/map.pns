@@ -1,0 +1,22 @@
+
+
+type ints = list(int).
+
+f1 :: (int -> int) -> int -> int
+    sharing f1(i) = j
+    pre nosharing
+    post nosharing.
+f1(f, i) = {
+    j = f(i);
+    j
+}.
+
+map :: (int -> int) -> ints -> ints.
+map(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map(f, mbs1))
+    }
+}.

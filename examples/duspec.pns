@@ -1,0 +1,225 @@
+% testing more precise DU spec
+% based on cord.pns
+
+type cb ---> leaf(bs) ; branch(cb, cb).
+type bs = list(pair(bool,bool)). % non-atomic so we can test abstract sharing
+type rbs = ref(bs).
+
+% DU a bit subtle for pointer to cord p.  We smash
+% just the ref for the left branch but when the right branch
+% is processed it's last tail gets smashed also.
+du_spec [
+    tls = ...cons(?,!),
+    % ref_tls = ref(!) % XX needs ...cons(?,!)
+    % ref_tls = ref(...cons(?,!)) % XX needs ref(!)
+    % ref_tls = ref(!cons(?,!)) % XX needs ...cons
+    % ref_tls = ref(!) / ...cons(?,!) % OK
+    % ref_tls = ref(!...cons(?,!))    % deprecated?
+    % ref_tls = ref(!/ ...cons(?,!))    % OK
+    ref_tls = ref(!/tls)    % OK
+    ].
+
+
+cordlist :: cb -> bs
+    sharing cordlist(!x^tls)=a
+    pre nosharing
+    post x=leaf(a).
+cordlist(x) = {
+    *a = nil;
+    b = cordlist1(x, !a) !x^tls;
+    return(*a)
+}.
+
+cl :: cb -> bs
+    sharing cl(!x^tls)=a
+    pre nosharing
+    post nosharing.
+% cordlist(x) = { % XXX should trigger multiple definition error
+cl(x) = {
+    % b = c1(x); % XXX should trigger undefined error
+    % b = cl1(x);
+    b = cl1(x) !x^tls;
+    % b = cl1(x) !x;
+    return(nil)
+}.
+
+cl1 :: cb -> cb
+    sharing cl1(!x^tls)=a
+    % sharing cl1(!x)=a
+    pre nosharing
+    post x=a.
+cl1(x) = {
+    x
+}.
+
+test_acl:: void -> bs.
+test_acl(v) = {
+	% XXX using data constructor as fn makes things go crazy
+	% map(t2, cons(true, cons(false, nil)), ps1);
+	ps1 = map(f_t2, cons(true, cons(false, nil)));
+	ps2 = map(f_t2, cons(true, cons(false, nil)));
+	% ps1, ps2 are concrete lists of abstract pairs
+	acl(branch(leaf(ps1), leaf(ps2)))
+}.
+
+% convert a to pair of a's (result shares with abstract)
+f_t2:: A -> pair(A, A).
+f_t2(a) = t2(a, a).
+
+% version of cordlist where list elements share with abstract
+acl :: cb -> bs
+    % sharing acl(!x^tls)=a
+    sharing acl(!x)=a % XXX should give error due to abstract sharing
+    % pre x = leaf(cons(abstract, nil)) % XX would be nice but...
+    pre (ab = t2(true,true); ab = abstract; x = leaf(cons(ab, nil)))
+    post (x=leaf(a); ab = t2(true,true); ab = abstract; a = cons(ab, nil)).
+    % post (x=leaf(a); a = cons(abstract, nil)). % XX would be nice but...
+acl(x) = {
+    *a = nil;
+    % b = acordlist1(x, a) !x^tls!a^ref_tls; % precise (OK)
+    % below the duspec of x for call is more than declared in acl so we
+    % get an error; we can't change the acl declaration due to abstract
+    % sharing
+    % b = acordlist1(x, a) !x!a^ref_tls; % XX abs share, not enough DU declared
+    b = acordlist1(x, !a) !x^tls;
+    return(*a)
+}.
+
+acordlist1 :: cb -> rbs -> rbs
+    sharing acordlist1(!x^tls,!p^ref_tls)=p1
+    % sharing acordlist1(!x^tls,!p)=p1
+    % sharing acordlist1(!x,!p)=p1 % OK
+    % sharing acordlist1(x,!p)=p1 % XX need !x
+% s(x.leaf.cons/2.1.t2/2.1
+    % pre nosharing
+    pre (ab = t2(true,true); ab = abstract; *p = cons(ab, nil); x=leaf(*p))
+    % pre (x=leaf(*p); ab = t2(true,true); ab = abstract; *p = cons(ab, nil))
+    % pre (x=leaf(*p); *p = cons(abstract, nil))
+    post (x=leaf(*p); p1=p).
+acordlist1(x, p) = {
+    cases x of {
+    case leaf(q):
+        % *!p := q !q!x; % XX problem if type sig has precise duspec
+        *p := q !q!x^tls!p^ref_tls;
+        % *!p := q !q!x^tls; % XXX should default to p^ref(!)
+        return(alastp(p)) % now we share (return val) with q
+    case branch(x1, x2):
+        % p2 = acordlist1(!x1, p); % XX p DU
+        % p2 = acordlist1(x1, p) !p^ref_tls; % XX x DU
+        % p2 = acordlist1(x1, p) !x^tls!p^ref_tls; % XX !x2 (imprecise)
+        % p2 = acordlist1(!x1, p) !x2^tls!x!p^ref_tls; % XX !x^tls
+        % Note x1 du precision is not needed - analysis shows
+        % which paths are du. Precision is needed for x because
+        % it's an argument and the du spec in the type sig is checked
+        % before sharing analysis. Also needed for x2 currently (XXX
+        % might be able to fix this - it seems du due to
+        % bogus sharing with x1 because of type folding etc)
+        % p2 = acordlist1(!x1, p) !x2!x^tls!p^ref_tls; % XX x2 abstract
+        % p2 = acordlist1(!x1, p) !x2^tls!x^tls!p^ref_tls; % OK
+        p2 = acordlist1(!x1, !p^ref_tls) !x2^tls!x^tls;
+        return(acordlist1(!x2, !p2)) !x^tls!p^ref_tls
+    }
+}.
+
+cordlist1 :: cb -> rbs -> rbs
+    sharing cordlist1(!x^tls,!p^ref_tls)=p1
+    % sharing cordlist1(!x^tls,!p)=p1
+    % sharing cordlist1(!x,!p)=p1 % OK
+    % sharing cordlist1(x,!p)=p1 % XX need !x
+    pre x=leaf(*p)
+    post (x=leaf(*p); p1=p).
+cordlist1(x, p) = {
+    cases x of {
+    case leaf(q):
+        % *!p := q !q!x; % XX problem if type sig has precise duspec
+        *p := q !q!x^tls!p^ref_tls;
+        % *!p := q !q!x^tls; % XXX should default to p^ref(!)
+        return(lastp(p)) % now we share (return val) with q
+    case branch(x1, x2):
+        % p2 = cordlist1(!x1, p); % XX p DU
+        % p2 = cordlist1(x1, p) !p^ref_tls; % XX x DU
+        % p2 = cordlist1(x1, p) !x^tls!p^ref_tls; % XX !x2 DU needed
+        % p2 = cordlist1(!x1, p) !x2!x!p^ref_tls; % XX x du imprecise
+        % Note x1 and x2 du precision is not needed - analysis shows
+        % which paths are du. Precision is only needed for x because
+        % it's an argument and the du spec in the type sig is checked
+        % before sharing analysis.
+        p2 = cordlist1(!x1, p) !x2!x^tls!p^ref_tls; % OK
+        % p2 = cordlist1(!x1, !p^ref_tls) !x2!x^tls!p^ref_tls;
+        % p2 = cordlist1(!x1, !p^ref_tls) !x2!x^tls;
+        return(cordlist1(!x2, !p2)) !x^tls!p^ref_tls
+    }
+}.
+
+% lastp with abstract sharing of elements
+alastp :: rbs -> rbs
+    sharing alastp(q)=r
+    % XXX type error (q, not *q) -> Oops! alias_stat failed!
+    % pre (ab = t2(true, true); ab = abstract; q = cons(ab, nil))
+    pre (ab = t2(true, true); ab = abstract; *q = cons(ab, nil))
+    post r=q.
+alastp(q) = {
+    q1 = *q;
+    cases q1 of {
+    case nil:
+        return(q)
+    case cons(*h, *p):
+        return(alastp(p))
+    }
+}.
+
+lastp :: rbs -> rbs
+    sharing lastp(q)=r
+    pre nosharing
+    post r=q.
+    % following should be more precise???
+    % post *r=nil; q=cons(true,*r). % XXX sharing analysis of (cordlist1) alias_stat failed :-(
+    % post *r=nil; q=cons(42,*r). % XXX loop compiling after error msg?
+lastp(q) = {
+    q1 = *q;
+    cases q1 of {
+    case nil:
+        return(q)
+    case cons(*h, *p):
+        return(lastp(p))
+    }
+}.
+
+% polymorphic map where list elements may be abstract
+% We want to list spine to be concrete.  This means we
+% can't have fully polymorphic type with sharing because
+% some instances may share between the input and output lists
+% but in general they have different types so we can't declare
+% it. This version allows abstract input elements and returns
+% abstract output elements but no sharing between them is allowed.
+% map:: (A -> B sharing f(a) = b pre a = abstract post b = abstract)
+map:: (A -> B) % implies abstract sharing shown above
+      -> list(A) -> list(B)
+    sharing map(f,mbs1)=mbs
+    % pre mbs1 = cons(abstract, nil) % XX would be nice but...
+    % polymorphic list so we need to deconstruct using cases rather than
+    % constructing an example
+    pre cases mbs1 of {case cons(mb, mbs2): mb = abstract}
+    post cases mbs of {case cons(mb, mbs2): mb = abstract}.
+    % post mbs = mbs1. % XXX type error not detected (-> fail)
+map(f, mbs) = {
+    cases mbs of {
+    case nil:
+        nil
+    case cons(mb, mbs1):
+        cons(f(mb), map(f, mbs1)) % XXX bogus sharing added???
+    }
+}.
+
+
+% (failed) attempt at simpler example of bogus sharing with polmorphism
+% (problem fixed now anyway)
+app:: (A -> B sharing f(a) = b pre a = abstract post b = abstract)
+      -> A -> B
+    sharing map(f,mbs1)=mbs
+    pre mbs1 = abstract
+    post mbs = abstract.
+app(f, mbs) = {
+    f(mbs)
+}.
+

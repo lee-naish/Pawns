@@ -1,0 +1,42 @@
+% test of basic queue functionality
+% 63 = ASCII code for question mark - add nicer way of doing this XXX
+
+import from queue_du.
+import from io.
+
+main1:: void -> void
+    sharing main1(v) = v1 % XXX omit =v1 for weird type error message:
+	% 'Error: incompatible return type:'(void, (void sharing
+	% main1(v)pre nosharing post nosharing))
+    pre nosharing
+    post nosharing.
+main1(v) = {
+    % q = (q_empty(v) :: queue(int));
+    q = q_empty(v);
+    return(void)
+}.
+
+% as described above
+type queue(T) = pair(list(T), ref(list(T))).
+
+% create empty queue
+% Need to create a temporary pointer to nil that gets thrown away
+% because we can't have uninitialised components in data structures.
+% Also need a cast to link up the type parameter in the signature with
+% the the introduced type param of the empty list(s) - could potentially
+% weaken type checking to make this unnecessary; also need to change
+% syntax/reading to link type vars in declarations with type vars in
+% function definitions
+% Need to say args of pair share because DU is used in other queue functions
+% - a bit cumbersome.
+q_empty:: void -> queue(T)
+    sharing q_empty(v) = q
+    pre nosharing
+    post nosharing.
+q_empty(v) = {
+    % n = (nil :: list('_type_param'(1)));
+    n = nil;
+    *np = n;
+    q = t2(n, np); % second arg points to the wrong nil
+    return(q)
+}.

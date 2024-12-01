@@ -1,0 +1,99 @@
+% some simple types with not so simple recursion for testing type path
+% folding etc
+% XXX should have some more code for testing also, including constructing
+% terms a deconstructing using case (done) then checking sharing
+
+type r1 ---> r1z ; r1c(r1). % simple recursion
+
+type r1r ---> r1rz ; r1rc(ref(r1r)). % simple recursion but through ref
+
+type r1rr ---> r1rrz ; r1rrc(ref(ref(r1rr))). % recursion through two refs
+
+type r2 ---> r2z ; r2c1(r2a). % double recursion
+type r2a ---> r2c2(r2).
+
+type r2r ---> r2rz ; r2rc1(r2ra). % double recursion through ref
+type r2ra ---> r2rc2(ref(r2r)).
+% There are memory cells containing values of type r2r, r2ra and
+% ref(r2r) so we need (at least) three distinct type paths for sharing
+% (unless we map different types to the same path, which is unlikely to
+% be a good idea). XXX
+
+type r3 ---> r3z ; r3c1(r3a). % triple recursion
+type r3a ---> r3c2(r3b).
+type r3b ---> r3c3(r3).
+
+% Examples from sharing paper
+type mme = maybe(maybe(either(int, int))).
+type rtrees = list(rtree).
+type rtree ---> rnode(int, rtrees).
+
+% XXX should be error with lower case t
+type rlist(T) ---> rnil ; rcons(T, ref(rlist(T))).
+
+test:: r1 -> r1
+    sharing test(a) = r
+    pre nosharing
+    post r=r1c(a).
+test(a) = {
+    a1 = r1c(r1z);
+    b1 = r1c(a1);
+    %
+    *a1r = r1rz;
+    b1r = r1rc(a1r);
+    %
+    **a1rr = r1rrz;
+    *b1rr = r1rrc(a1rr);
+    *!b1rr := r1rrc(a1rr) !a1rr;
+    % **a1rr := r1rrz; % XXX Warning: assigned variable not def.
+    c1rr = *a1rr;
+    *c1rr := r1rrz;
+    %
+    *a2r = r2rz;
+    b2r = r2rc2(a2r);
+    *c2ra = r2rc1(b2r);
+    d2r = r2rc2(c2ra);
+    *!c2ra := r2rc1(b2r) !d2r;
+    cases *c2ra of {
+    case r2rc1(*e2r):
+        void
+    };
+    cases d2r of {
+    case r2rc2(*f2r):
+        void
+    };
+    **g2r = d2r;
+    % **!g2r := r2rc2(c2ra); % XXX Error: function call as LHS of := ...
+    %
+    b1
+}.
+
+f1:: r1 -> r1
+    sharing f1(a) = r
+    pre nosharing
+    post r=r1c(a).
+f1(a) = r1c(a).
+
+f2:: r2 -> r2
+    sharing f2(a) = r
+    pre nosharing
+    post r=r2c1(r2c2(a)).
+% f1(a) = r2c1(r2c2(a)).   % XXX should get redefinition error
+f2(a) = r2c1(r2c2(a)).
+
+f2r:: r2r -> r2r
+    sharing f2r(a) = r
+    pre nosharing
+    % post *ap = a; r=r2rc1(r2rc2(ap)).
+    post inferred.
+f2r(a) = {
+    *ap = a;
+    r2rc1(r2rc2(ap))
+}.
+
+f3:: r3 -> r3
+    sharing f3(a) = r
+    pre nosharing
+    % post r=r3c1(r3c2(r3c3(a))).
+    post inferred.
+f3(a) = r3c1(r3c2(r3c3(a))).
