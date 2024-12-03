@@ -5,36 +5,47 @@ main :: void -> void
 main(c) = { !putchar(!getchar(void))
 }.
 
+% duspec for just second arg of a pair du, so first arg could
+% potentially be abstract
+du_spec [
+% if we don't have type info in du_spec_vpc_def_bang then we don't know
+% if paths have been folded so we need a more general path with ...
+    % du_t2_2 = ...t2(!,!) % allow both args du
+    du_t2_2 = ...t2(?,!)
+    % du_t2_2 = t2(?,!)
+    ].
+
 % some state vars
 !isdef :: ref(int).
 !undef :: ref(int).
-!itdef :: bool. % XXX not a ref, ill-typed use
-nobang :: ref(int). % XXX not mutable
+!itdef :: bool. % XX not a ref, ill-typed use
+nobang :: ref(int). % XX not mutable
+!hasabs^du_t2_2 :: ref(pair(maybe(bool),maybe(bool))).
 
 test1 :: ref(int) -> ref(int)
     implicit
-        ro io,  % XXX should be rw due to putchar+getchar
-        wo undef, % XXX
-        wo itdef, % XXX
-        rw nobang, % XXX
+        ro io,  % XX should be rw due to putchar+getchar
+        wo undef, % XX
+        wo itdef, % XX
+        rw nobang, % XX
         wo isdef
     sharing test1(ip0) = ip
     pre nosharing
-    post nosharing. % XXX ip = isdef
+    post nosharing. % XX ip = isdef
 test1(ip) = {
-    *itdef = 42; % XXX ill-typed
+    *itdef = 42; % XX ill-typed
     *isdef = 42;
     jp = isdef;
     io1 = io;
-    putchar(!getchar(void)) !io1; % XXX ! missing on putchar
+    putchar(!getchar(void)) !io1; % XX ! missing on putchar
     *!io := *io1 !io1; % can say *io is a pointer (but we can't deref it)
     dummy = io1;
     jp
 }.
 
 test2 :: ref(int) -> ref(int)
-    % implicit rw io % XXX missing
-    implicit ro isdef, wo isdef % XXX isdef repeated
+    % implicit rw io % XX missing
+    implicit ro isdef, wo isdef % XX isdef repeated
     sharing test2(!ip0) = ip
     pre nosharing
     post ip = ip0.
@@ -67,7 +78,7 @@ test4 :: ref(int) -> void
     pre ip=isdef
     post nosharing.
 test4(ip) = {
-    *!ip := 42 % XXX needs !isdef
+    *!ip := 42 % XX needs !isdef
 }.
 
 
@@ -208,7 +219,7 @@ scope_ro :: ref(int) -> ref(int)
     implicit ro isdef
     sharing scope_ro(ip0) = ip
     pre nosharing
-    % post nosharing.      % XXX
+    % post nosharing.      % XX
     post ip = isdef.       % ok
 scope_ro(ip) = {
     ip1 = isdef;      % sharing between isdef and ip1
@@ -248,12 +259,12 @@ rwclosure_ret:: ref(int) ->
         sharing f(i, !ip) = v  % need i, represents closure arg
         pre ip=isdef
         post nosharing)
-    % implicit rw isdef % now OK  XXX can't declare here and above
+    % implicit rw isdef % now OK  XX can't declare here and above
     sharing rwclosure_ret(ip0) = ip
     pre nosharing
     post nosharing.
 rwclosure_ret(ip) = {
-    % !init_isdef(42); % XXX already defined because it's rw in this fn
+    % !init_isdef(42); % XX already defined because it's rw in this fn
     % !test4 % return closure
     !test5(2) % return closure
 }.
@@ -285,7 +296,7 @@ use_closure_ret :: ref(int) -> ref(int)
 use_closure_ret(ip) = {
    % !init_isdef(void);
    fwo = woclosure_ret(ip);
-   % f1 = rwclosure_ret(ip); % XXX isdef not defined yet + needs !
+   % f1 = rwclosure_ret(ip); % XX isdef not defined yet + needs !
    !fwo(42);	% inits isdef
    f2 = !rwclosure_ret(ip); % isdef now defined - ok
    !f2(!ip); % test5(2, ip), updates ip
@@ -321,13 +332,33 @@ use_nested_sv(i) = {
 }.
 
 
+% test duspec on state var hasabs
+test_hasabs :: maybe(bool) -> maybe(bool)
+    implicit rw hasabs
+    sharing test_hasabs(v0) = v
+    pre (t = just(true); t = abstract; *hasabs = t2(t,v0))
+    % pre (t = just(true); *hasabs = t2(t,nothing); *hasabs=abstract)
+    post nosharing.
+test_hasabs(b) = {
+    % h = t2(b, b);
+    % *!hasabs := h;
+    cases *hasabs of {
+    % case t2(*a, *b): % XX type, not redefinition error
+    case t2(*x, *y):
+        *!x := just(false) !hasabs; % XX non-du path of hasabs
+        *!y := nothing !hasabs;
+        cases *x of {
+	case just(*z):
+             *!z := true !x!hasabs % non-du path, abstract sharing
+        }
+    };
+    % t % XX postcond violation
+    nothing
+}.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % stubs
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% asserted by system
-type iotype ---> iocons. % should be opaque
-% !io :: ref(iotype).
 
 putchar :: int -> void
     implicit rw io.

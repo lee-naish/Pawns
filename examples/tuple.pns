@@ -3,6 +3,12 @@
 % Types for tuples (just pair currently built-in)
 %   data constructors are t2, t3, t4,... (no t1 or t0 - could add)
 %   types are tuple2 (= pair), tuple3 (= triple),...
+% Best have functions that return *pointer* to each arg:
+% t3_2r take a tuple2 and returns pointer to arg 2, etc
+% Sharing is as precise as possible given polymorphism.
+%
+% Older interface (can easily be defined in terms of above)
+% - they have been left in for now
 % Extract arguments/fields
 %   t2_1 returns first arg of a tuple2, t2_2 returns second, etc
 % Assign to arguments/fields
@@ -28,6 +34,12 @@ export_imp
     tuple4,
     quadruple,
     tuple5,
+    t2_1r,
+    t2_2r,
+    t3_1r,
+    t3_2r,
+    t3_3r,
+    % could delete following??
     t2_1,
     t2_2,
     t2_1assign,
@@ -44,6 +56,58 @@ type tuple4(A, B, C, D) ---> t4(A, B, C, D).
 type quadruple(A, B, C, D) = tuple4(A, B, C, D).
 type tuple5(A, B, C, D, E) ---> t5(A, B, C, D, E).
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% ref functions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+t2_1r:: tuple2(A, B) -> ref(A)
+    sharing t2_1r(t) = v
+    pre nosharing
+    post inferred.
+t2_1r(t) = {
+    cases t of {
+    case t2(*r, b):
+        r
+    }
+}.
+
+t2_2r:: tuple2(A, B) -> ref(B).
+t2_2r(t) = {
+    cases t of {
+    case t2(a, *r):
+        r
+    }
+}.
+
+t3_1r:: tuple3(A, B, C) -> ref(A)
+    sharing t3_1r(t) = v
+    pre nosharing
+    post inferred.
+t3_1r(t) = {
+    cases t of {
+    case t3(*r, b, c):
+        r
+    }
+}.
+
+t3_2r:: tuple3(A, B, C) -> ref(B).
+t3_2r(t) = {
+    cases t of {
+    case t3(a, *r, c):
+        r
+    }
+}.
+
+t3_3r:: tuple3(A, B, C) -> ref(C).
+t3_3r(t) = {
+    cases t of {
+    case t3(a, b, *r):
+        r
+    }
+}.
+
+% add t4 etc
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % t2

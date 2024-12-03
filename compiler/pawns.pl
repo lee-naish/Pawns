@@ -1,16 +1,20 @@
-% *prototype* implementation of Pawns (tentative name)
-% (Pointer Assignment With No Surprises, alt name is
-% Flic - Functional Language Influenced by C)
-% Read Prolog-ish syntax and convert to other forms
-% (internal representation, C, ...)
+% *prototype* implementation of Pawns
+% (Pointer Assignment With No Surprises)
+% Reads Prolog-ish syntax, converts to internal form of "core" Pawns,
+% does type analysis and sharing analysis then does simple translation to
+% C + support for algebraic data types provided by the adtpp tool.
+% 
 % This file is too long and the structure within it is not understood -
 % it should be broken up into separate modules etc...
+% comp.pl has a bit of top level code and the translation to C+adtpp; the
+% other 90% is here.
+
+% XXX see Bugs file for more things to fix plus XXX here and in *.pns
+% elsewhere (some may be fixed already; plus there are no doubt plenty of
+% unknown bugs and limitations)
 
 % XXX need to FIX sharing analysis for cases ++ (see paper)
 % (sharing between different args of DC)
-
-% XXX see Bugs file for more things to fix plus XXX here and in *.pns
-% elsewhere
 
 % XXX using data constructor as fn makes things go crazy
 % map(t2, [true, false, true], Ps1); in duspec.pns
@@ -176,7 +180,7 @@ share_anal :-
     writeln('    .......'),
     nfdec_struct(Fn, _),
     \+ builtin_func_arity(Fn, _),
-    \+ mutable_global(Fn),
+    \+ state_var(Fn, _),
     alias_fn(Fn),
     fail.  
 share_anal :-
@@ -197,7 +201,7 @@ input_file(File) :-
     retractall(type_struct_c(_, _)),
     retractall(teqdef(_, _)),
     retractall(tdef(_, _)),
-    retractall(mutable_global(_)),
+    retractall(state_var(_, _)),
     file_as(File, As),
     % First process type decs (must be done first), then
     % fn declarations (pre/postconds rely on sharing analysis which uses
@@ -602,8 +606,12 @@ fdec_fdec_struct(Fn0, ST, Fn, I) :-
         canon_type_name((void -> void
                     sharing f(v) = r pre nosharing post nosharing), I)
     ),
-    ( Fn0 = (!Fn), atom(Fn) ->
-        assert(mutable_global(Fn)),
+    % XXX add more sanity checking for duspec on state vars
+    % Default duspec is ...!; outer ref added in other cases
+    ( (Fn0 = (!Fn^DUS0), atom(Fn), DUS = ref(!/DUS0) ;
+            Fn0 = (!Fn), atom(Fn), DUS = (...!)) ->
+        expand_du_spec(DUS, DUS1),
+        assert(state_var(Fn, DUS1)),
         ( I = ref(_) ->
             true
         ;
@@ -618,8 +626,8 @@ fdec_fdec_struct(Fn0, ST, Fn, I) :-
         Fn = '_foobar'
     ).
 
-% store mutable globals, now called state variables
-:- dynamic(mutable_global/1).
+% store mutable globals (state variables) + their duspecs
+:- dynamic(state_var/2).
 
 % renaming declaration handling:
 % Given list of all functions and a renaming def, return a list of
@@ -715,6 +723,8 @@ replace_inferred(T0, FB, T) :-
 % with body of function definition, renamed so formal params of function
 % are replaced by formal params in type definition; also need to
 % replace return by assignment to result variable
+% XXX map2 fails if sharing has wrong number of args ->
+% ERROR: suspect definition:... (could give better msg)
 rename_inferred_postcond(T0, FH, FB, T) :-
     FH =.. [_|FArgs],
     T0 = arrow(_, _, _, TArgs, TRes, _, _, _, _, _, _),
@@ -818,7 +828,7 @@ fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     % fns with wo args; for now we over-approximate with all state vars
     % XXX NQR if we have a local var the same name as a state vars
     % (should warn about that at least).
-    findall(SV, mutable_global(SV), AllVs),
+    findall(SV, state_var(SV, _), AllVs),
     % need to include mutable args also! XXX actually all args
     % type_to_banged(TF, BVs),
     append(FHAs, AllVs, AllVs1),
@@ -1449,8 +1459,8 @@ gather_implicits(Ic, ROIs, RWIs, WOIs) :-
 gather_imps(void, [], [], []). % explicit declaration of no implicit args
 gather_imps((ro P), [P], [], []) :-
     atom(P).
-gather_imps((rw P), [], [P^(...!)], []) :-
-    atom(P).
+gather_imps((rw P), [], [P^DUS], []) :-
+    state_var(P, DUS).
 gather_imps((rw P), [], [P], []) :-
     P = P1^_DUS,
     atom(P1).
@@ -1595,6 +1605,8 @@ pstat_stat(PS, S) :-
         ( atom(PS1), \+ data_cons(PS1) ->
             V = PS1,
             Ann = [src(PS), typed(T1), decl_only(V)]
+        ; PS1 = (!V), state_var(V, DUS) ->
+            Ann = [src(PS), typed(T1), decl_only(V), bang(d, V^DUS)]
         ; PS1 = (!V), atom(V), \+ data_cons(V) ->
             Ann = [src(PS), typed(T1), decl_only(V), bang(d, V^(...!))]
         ; PS1 = (!V), V = V1^_DUS, atom(V1), \+ data_cons(V1) ->
@@ -1619,7 +1631,9 @@ pstat_stat(PS, S) :-
     ; PS = (PS1 ! V) ->
         pstat_stat(PS1, S1),
         S1 = C1-Anns1,
-        ( atom(V) ->
+        ( state_var(V, DUS) ->
+            S2 = C1-[src(PS), bang(i, V^DUS)|Anns1]
+        ; atom(V) ->
             S2 = C1-[src(PS), bang(i, V^(...!))|Anns1]
         ; V = VDUS^_, atom(VDUS) ->
             S2 = C1-[src(PS), bang(i, V)|Anns1]
@@ -1683,7 +1697,9 @@ pstat_eq_stat(PEl, PEr, S) :-
     ; PEl = (*PE1) ->
         % want *v1 = v2
         to_var(PEr, V2, ES2),
-        ( PE1 = !V1, atomic(V1), \+ data_cons(V1) ->
+        ( PE1 = !V1, state_var(V1, DUS) ->
+            combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1^DUS)], S)
+        ; PE1 = !V1, atomic(V1), \+ data_cons(V1) ->
             combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1^(...!))], S)
         ; PE1 = !V1, V1 = V1v^_DUS, atomic(V1v), \+ data_cons(V1v) ->
             % XXXX valid_du_spec(DUS),
@@ -1764,8 +1780,9 @@ pstat_eq_stat(PEl, PEr, S) :-
                     propogate_anns(S1, S)
                 ; Arity = 1 ->
                     % XXX could count this as an error?
-                    % XXX or support ^
-                    S = eq_var(Vl, PEr1)-[bang(d, PEr1^(...!))|Anns]
+                    % XXX or support ^ + state vars
+                    writeln('Warning: ignoring unexpected ! prefix:'(PEr)),
+                    S = eq_var(Vl, PEr1)-Anns
                 ;
                     writeln('Error: ! prefixing non-var/application :'(PEr)),
                     S = eq_var(Vl, '_err')-Anns
@@ -1884,6 +1901,9 @@ to_var(PE, V, ES) :-
             ( func_arity(PE1, _DecArity) ->
                 to_var(PE1, V, ES1),
                 combine_stats(empty_stat-[app_bang(PE1)], ES1, ES)
+            ; state_var(PE1, DUS) ->
+                V = PE1,
+                ES = empty_stat-[bang(d, V^DUS)]
             ;
                 V = PE1,
                 ES = empty_stat-[bang(d, V^(...!))]
@@ -1995,18 +2015,21 @@ combine_stats(S1, S2, C-Anns) :-
 
 % like pstat_fix_return for case branches
 % based on pcases_cases (var names confusing)
-pcases_fix_return({CPCd}, Cs) :-
-    pcases_fix_return(CPCd, Cs).
-pcases_fix_return((case PCd), (case Cs)) :-
-    pcases_fix_return1(PCd, Cs).
+pcases_fix_return({CPCd}, TRes, Cs) :-
+    pcases_fix_return(CPCd, TRes, Cs).
+pcases_fix_return((case PCd), TRes, (case Cs)) :-
+    pcases_fix_return1(PCd, TRes, Cs).
 
-pcases_fix_return1(PCd, Cs) :-
+pcases_fix_return1(PCd, TRes, Cs) :-
     (PCd = ((PE:PS0) case PCd1) ->
-        pstat_fix_return(PS0, PS),
+        pstat_fix_return(PS0, TRes, PS),
         Cs = ((PE:PS) case Cs1),
-        pcases_fix_return1(PCd1, Cs1)
+        pcases_fix_return1(PCd1, TRes, Cs1)
+    ; PCd = (PE:PS0) ->
+        pstat_fix_return(PS0, TRes, PS),
+        Cs = (PE:PS)
     ;
-        pcases_fix_return(PCd, Cs)
+        pcases_fix_return(PCd, TRes, Cs)
     ).
 
 % cases -> abstract syntax
@@ -3225,11 +3248,11 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
     ).
 
 % like check_banged1 but we pass in modified variable paths, not variables
-check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
+check_banged_lhs1(BVs, AMVPs, SS, Ann, _Stat) :-
     % print(check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat)), nl,
     % iterate over all members of AMVs
     (   member(VP, AMVPs),
-        VP = vp(V, _VVP),
+        VP = vp(V, VPC),
         % skip error messages about V* (introduced) vars
         (( atomic(V), % in case its abstract(_)
             name(V, VS),
@@ -3254,23 +3277,26 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
         % note we need to check for sharing with abstract, not
         % V=abstract(_)
         ( aliases(SS, VP, vp(abstract(_AT), _AVP)) ->
-            write('Error: abstract variable '),
+            write('Error: abstract variable path '),
             print(V),
-            write(' may be modified by '),
-            print(Stat),
+            print(VPC),
+            write(' might be modified'),
+            % print(Stat),
             nl,
             write_src(Ann),
             fail
         ;
             true
         ),
-        % ignore banged vars
-        \+ member(V^_, BVs),
+        % ignore banged vars with path definitely covered by duspec
+        % XXX! need to compare path with duspec (want types eventually)
+        \+ (member(V^DUS, BVs), du_spec_vpc_def_bang(DUS, xxxtype, VPC)),
         % must be an error...
-        write('Error: variable '),
+        write('Error: variable path '),
         write(V),
-        write(' might be modified by '),
-        print(Stat),
+        print(VPC),
+        write(' might be modified'),
+        % print(Stat),
         nl,
         write_src(Ann),
         fail
@@ -3278,11 +3304,9 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat) :-
         true
     ).
 
-% XXX! now called with duspecs
-% Should pass in type also for better precision
-% given list of varpaths which may be modified, and sharing set,
+% XXX! Should pass in type also for better precision
+% Given list of varpaths which may be modified, and sharing set,
 % (nondeterministically) return var path which may be modified
-% XXX! returns var paths for more precision
 should_bang(MVs, SS, MVP) :-
     member(V1^DUS, MVs),
     MVP1 = vp(V1, VP1),
@@ -3932,7 +3956,6 @@ rename_sharing([s(vp(N1, P1), vp(N2, P2))|SS], FAs, Args, SSArgs) :-
     rename_sharing(SS, FAs, Args, SSArgs1).
 
 % as above but just for vars which are DU
-% XXX! now support more general var paths for declaring DU
 rename_vars([], _,  _, []).
 rename_vars([PV^DU|PVs], FAs, Args, [V1^DU|Vs]) :-
     nth0(N1, FAs, PV),
@@ -4196,12 +4219,11 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     append([AArgs, ROVPs, RWVPs], AArgs1),
     rename_sharing(Pre, FAs1, AArgs1, PreSS),
     sort(PreSS, PreSS1),
-    % XXX!
-    % Bs has duspecs for each var, from bang() annotations
-    % DUs, DUVs, AllDUs don't (but we can get it from DUDUs+RWDUIs) 
-    % We will need it in check_banged (we want something like
-    % check_banged_lhs instead, which is more precise but for just one var)
-    map('X,vp(X,vpe)', CLFnVs, CLFnPs),
+    % Bs has duspecs for each var, from bang() annotations.
+    % DUs, DUVs, AllDUs don't but we get their annotations from
+    % DUDUs+RWDUIs.  check_banged needs the annotations
+    % XXX! We should also pass in types
+    map('X,vp(X,_)', CLFnVs, CLFnPs),
     append(CLFnVs, Args, AArgVs), % just want vars, not paths
     rename_vars(DUDUs, FAs, AArgVs, DUVs),
     append(RWDUIs, DUVs, AllDUs),
@@ -4264,7 +4286,7 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
 
 % var is a state var and path has just a single ref
 aliased_sv(V, vpc('_ref', 1, 1, vpe)) :-
-    mutable_global(V).
+    state_var(V, _).
 
 % path with just ref
 ref_path(vpc('_ref', 1, 1, vpe)).
@@ -4497,6 +4519,8 @@ rpath_aliases([P|Ps], RT, VPr, LSum, VPl, Ss) :-
 
 'X,vp(X,vpe)'(X,vp(X,vpe)).
 
+'X,vp(X,_)'(X,vp(X,_)).
+
 % should be in a lib, implemented more efficiently
 variant(L, R) :-
     subsumes_chk(L, R),
@@ -4533,7 +4557,10 @@ check_ho_types1(Anns, RHS, LT, RT) :-
 % renaming
 % T1 as general as T2 if WOIs1 = WOIs2, RWIs1 >= RWIs2,
 % ROIs1+RWIs1 >= ROIs2
-% XXX! will need some extra work to handle duspec on rw properly
+% XXX potential extra work to handle duspec on rw properly - currently
+% duspec is put on definition of state var so it's the same for all
+% functions that use it (making HO type checking easier) but if this
+% changes the code here may need fixing
 check_ho_types_arrow(Anns, RHS, LType, RType) :-
     LType = arrow(LTTL, LTTR, LTBVs, _, _, _, _, _, _, _, _),
     RType = arrow(RTTL, RTTR, RTBVs, _, _, _, _, _, _, _, _),
@@ -4753,15 +4780,21 @@ alias_fn(Fn) :-
     map('X,vp(X,vpe)', AVs, Args),
     % we use setof to avoid duplicate error messages
     (   setof(Msg, ND^DUSB^DUSA^ (
-            member(ND, AVs),              % ND is an argument
-            member(ND^DUSB, DUs),         % it's DU in fn body
-            ( member(ND^DUSA, BDUArgs) -> % it's declared DU in type sig
-                \+ duspec_subsumes(DUSA, DUSB),
-                Msg = 'Error: argument should be declared more mutable: '(ND,DUSA, DUSB)
+            member(ND^DUSB, DUs),         % var ND is DU in fn body
+            (   member(ND, AVs),              % ND is an argument
+                ( member(ND^DUSA, BDUArgs) -> % it's declared DU in type sig
+                    \+ duspec_subsumes(DUSA, DUSB),
+                    Msg = 'Error: argument should be declared more mutable: '(ND,DUSA, DUSB)
+                ;
+                    Msg = 'Error: argument should be declared mutable: '(ND)
+                )
             ;
-                Msg = 'Error: argument should be declared mutable: '(ND)
-            )
-            ), Msgs),
+fail, % XXXXXX shouldn't be needed if we add dupecs where sv used??
+                state_var(ND, DUSA),    % ND is a state var
+                \+ duspec_subsumes(DUSA, DUSB),
+                Msg = 'Error: state var should be declared more mutable: '(ND,DUSA, DUSB)
+            )), Msgs),
+        % XXX! should do similar or modify above for wo implicit args
         member(Msg, Msgs),
         writeln(Msg),
         fail
@@ -4792,7 +4825,7 @@ alias_fn(Fn) :-
         ;
             member(IV, WOIs)
         ),
-        \+ mutable_global(IV),
+        \+ state_var(IV, _),
         writeln('Error: implicit argument not declared mutable: '(IV)),
         fail
     ;
@@ -4841,7 +4874,7 @@ alias_fn(Fn) :-
         % over-approximate by considering all state vars which are not
         % implicitly returned XXXXXX NQR if we have local var with the same
         % name (should ban/warn about this! Also affects alias_stat_app)
-        findall(SV, (mutable_global(SV),
+        findall(SV, (state_var(SV, _),
                     \+ member(SV, RFAs1)
                     ), SVs),
         member(S, SS),
@@ -4910,6 +4943,26 @@ alias_fn(_).
 % dc1(!/ ...dc2(!,?),?) = first args of dc1 + d2 anywhere in first arg of dc1
 % ...cons(!::int, ?) = first arg of any cons cell that is type int
 % ...cons(!::list(int), ?) = first arg of any cons cell that is type list(int)
+% 
+% Note: initial dupsec support was for explicit arguments (plus vars
+% in statements to check argument duspecs are correct).  It can also
+% be useful for state variables.  State variable declarations
+% can now have a duspec (and/or potentially we could use explicit duspecs
+% where implicit rw args are defined - not done).  The latter is less
+% important - only useful where there is sharing between state vars and
+% other vars with abstract components and in some context we need better
+% precision.  It also complicates HO type checking.
+% For the former (duspec on SV definitions) allow state vars with abstract
+% components (these can't be updated by the wrappers can). We need
+% to check the duspecs on a rw state var within a function definition are
+% subsumed by the duspec on the state var definition.  For state var
+% definitions we use (eg) (XXX should have ref explicit for consistency?)
+% !gcoords^ ...cons(!,!) :: list(pair(int,int)).
+% meaning gcoords^ref(!/ ...cons(!,!)) - outermost ref is always du and
+% here each arg of any cons is du but the pairs are not du.  For wo
+% functions we allow any du of the var - it can always be eliminated
+% by using a temporary var and assigning that to the state var at the end
+% (could possibly give warning/error instead).
 
 % check if first duspec is more general than second
 % (ie, du subterms of first spec is a superset of second)
@@ -4935,8 +4988,6 @@ duspec_subsumes1(!DUS1, !DUS) :-
     duspec_subsumes1(DUS1, DUS).
 duspec_subsumes1(!DUS1, DUS) :-
     duspec_subsumes1(DUS1, DUS).
-% XXXXXXX check this????
-% Error: argument should be declared more mutable: (x,tls,tls)
 duspec_subsumes1(DUS, DUS1/DUS2) :-
     \+ ( slash_member(DUS2, DUS1/DUS2),    % each member of DUS1/DUS2
         \+ ( slash_member(DUS3, DUS),      % has a member of DUS

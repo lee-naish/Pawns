@@ -87,7 +87,7 @@ compile(BNS) :-
     % writeln('bool eq(intptr_t, intptr_t);'),
     % writeln('void print_int(intptr_t);'),
     % XXX need to know if things are exported so we can declare static
-    (   mutable_global(MG),
+    (   state_var(MG, _),
         \+ member(MG, [io]),  % any other fake system globals??
         % globals are refs but we use the name to refer to the lvalue
         % rather than the rvalue since the ref itself is not mutable.
@@ -520,7 +520,7 @@ stat_c_stat(Ind, _GVs, eq_deref(Vl, Vr)-Ann0) :-
     writeln(;).
 stat_c_stat(Ind, GVs, deref_eq(Vl, Vr)-Ann0) :-
     % *statevar = v is compiled as *!statevar := v
-    ( mutable_global(Vl) ->
+    ( state_var(Vl, _) ->
         stat_c_stat(Ind, GVs, assign(Vl, Vr)-Ann0)
     ;
         memberchk(typed(T), Ann0),
