@@ -24,10 +24,13 @@ Since 2022 the home page has been https://lee-naish.github.io/src/pawns/
 (tinyurl.com/pawns-lang points to an outdated version).
 This has links to (among other things):
 
+- A brief overview of the language:  
+This is not necessarily up to date, misses some features,
+and the syntax is not what is supported - see note below.
+
 - An informal introduction to the language:  
-This is not necessarily up to date,
-or presented particularly well, and the syntax is not what is supported -
-see note below. A more readable version is in preparation.
+Older than the overview and much harder to read but covers a few more
+things.
 
 - Slides for a couple of talks
 

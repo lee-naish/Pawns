@@ -1,0 +1,187 @@
+% various things related to type preservation/safety
+
+id :: T -> T
+    sharing id(x) = y
+    pre nosharing
+    post y=x.
+id(x) = x.
+
+idri :: ref(int) -> ref(int)
+    sharing idri(x) = y
+    pre nosharing
+    post y=x.
+idri(x) = x.
+
+idrlb :: ref(list(bool)) -> ref(list(bool))
+    sharing idrlb(x) = y
+    pre nosharing
+    post y=x.
+idrlb(x) = x.
+
+inc :: int -> int.
+inc(x) = x+1.
+
+idrli :: ref(list(int)) -> ref(list(int))
+    sharing idrli(x) = y
+    pre nosharing
+    post y=x.
+idrli(x) = x.
+
+assign :: ref(T) -> T -> void
+    sharing assign(!xp, y) = v % XXX should have !y if pre y = *xp?
+    % pre y = *xp
+    pre nosharing
+    post y = *xp.
+assign(xp, y) = {
+    *!xp := y;
+    return
+}.
+
+
+% (possibly) use and smash list(int)
+duli :: ref(list(int)) -> void
+    sharing duli(!xp) = v
+    pre nosharing
+    post nosharing.
+duli(xp) = {
+    return
+}.
+
+% (possibly) use and smash list(bool)
+dulb :: ref(list(bool)) -> void
+    sharing dulb(!xp) = v
+    pre nosharing
+    post nosharing.
+dulb(xp) = {
+    return
+}.
+
+const :: A -> B -> A
+    sharing const(a, b) = r
+    pre nosharing
+    post r = a.
+const(a, b) = a.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+scope :: void -> void.
+scope(v) = {
+    if 1 < 2 then
+        l = nil % list(T1)
+    else
+        l = cons(42,nil); % list(int)
+    % l :: list(int)
+    *lp = l;
+    x = idrli(lp); % list(int) required
+ 
+    if 1 < 2 then {
+        l1 = nil; % list(T2)
+        l2 = l1  % list(T2)
+        % note: l2 = nil would give different types
+    } else {
+        l1 = nil; % list(T3)
+        l2 = l1  % list(T3)
+    };
+    % T2, T3 unified
+    *lp1 = l1;
+    *!lp1 := l2 % same types - no problem
+}.
+
+test1 :: void -> void.
+test1(q) = {
+    l42 = cons(42,nil);
+    lt = cons(true,nil);
+    
+    *np = nil; % ref(list(T))
+    snp = np;
+    assign(!np, l42) !snp; % instantiates type; last use of np
+    *!snp := l42  !l42!np; % snp :: ref(list(int)) now
+    
+    *np1 = nil; % ref(list(T))
+    snp1 = np1;
+    assign(np1, l42) !snp1; % last use of np1 but poly type so we must bang
+    *!snp1 := lt  !l42; % instantiates T to bool (need !np1 also)
+    
+    *np2 = nil; % ref(list(T))
+    *!np2 := l42; % instantiates T to int, like assign fn call
+
+    % trying to reproduce bug in init_checkout_qa analysis
+    % XXXX
+    *np3 = t2(nil,nil); % pair of ref(list(T))
+    *lp3 = t2(l42,l42); % pair of ref(list(int))
+    *!lp3 := *np3; % instantiates T
+    return
+}.
+
+test2 :: void -> void.
+test2(q) = {
+    *fp1 = id;		% A->A
+    f1 = *fp1;
+    i1 = f1(1);
+    t1 = f1(true);
+
+    *fp2 = id;		% A->A
+    assign(!fp2, id);	% same, but warning/note
+    f2 = *fp2;
+    t2 = f2(true);
+    i2 = f2(2);
+
+    *fp3 = id;		% A->A
+    assign(!fp3, not);	% now bool -> bool
+    f3 = *fp3;
+    t3 = f3(true);	% ok
+    i3 = f3(3);		% error
+    assign(!fp3, inc);  % error
+
+    *fp4 = id;		% A->A
+    sfp4 = fp4;		% sharing
+    assign(!fp4, not) !sfp4; % now bool -> bool
+    f4 = *sfp4;
+    t4 = f4(true);	% ok
+    i4 = f4(4);		% error
+    assign(!sfp4, inc) ! fp4; % error
+
+    *fp5 = not;		% bool -> bool
+    assign(!fp5, id);	% bool -> bool instance of id used!
+    f5 = *fp5;
+    % XXX without f5 = *fp5 we barf below
+    t5 = f5(true);	% ok
+    i5 = f5(5);		% error
+    assign(!fp5, inc);	% error
+
+/*
+    *fp2 = id; % A->A
+    assign(!fp2, not);
+    f2 = *fp2;
+    t2 = f2(true);
+    i2 = f2(2);
+    assign(!fp2, inc);
+
+    *fp2 = id; % A->A
+    *!fp2 := inc;
+    t2 = *fp2(true);
+    *fp2 = id; % A->A
+    assign(!fp2, not);
+    assign(!fp2, inc);
+    *!fp2 := not;
+    i2 = *fp2(2);
+    *!fp2 := inc;
+    t2 = *fp2(true);
+*/
+
+    return
+}.
+
+% Add more examples
+% 
+% arrow types with pre/post conds
+% 
+% What should we do with :=  - allow type to be instaniated like with assign etc
+% rather than give error - seems reasonable (silly that assign is more flexible
+% than assign)
+%
+% Separate issue slighty but if/then/else should also unify types and give warning
+% if they are not identical for vars defined in different branches
+%
+% Is there then any need for casts, other than possibly making code more
+% readable?

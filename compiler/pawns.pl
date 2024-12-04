@@ -773,7 +773,6 @@ fdef_fdef_struct(PFH, PFB, FDS) :-
 % banged vars in the code
 fdef_fdef_struct1(FH, FB, fdef_struct(FName, FAs, Stat, VTm)) :-
     FH =.. [FName|FHAs],
-    writeln('    type analysis of '(FName)),
     map(arg_fdefarg, FHAs, FAs),
     nfdec_struct(FName, TF),
     % we replace distinct type vars with distinct new ground
@@ -1510,6 +1509,8 @@ get_type_annotation((_::T), T).
 % XXX should do more sanity checking
 pfdef_fdef(CFH, CFB, FH, FB) :-
     FH = CFH,
+    FH =.. [FName|_],
+    writeln('    processing types etc. of '(FName)),
     % pstat_stat(CFB, FB), writeln(CFB), nl, writeq(FB), nl.
     ( pstat_stat(CFB, FB) ->
         true
@@ -1609,7 +1610,8 @@ pstat_stat(PS, S) :-
             Ann = [src(PS), typed(T1), decl_only(V), bang(d, V^DUS)]
         ; PS1 = (!V), atom(V), \+ data_cons(V) ->
             Ann = [src(PS), typed(T1), decl_only(V), bang(d, V^(...!))]
-        ; PS1 = (!V), V = V1^_DUS, atom(V1), \+ data_cons(V1) ->
+        ; PS1 = (!V), V = V1^DUS, atom(V1), \+ data_cons(V1) ->
+            check_duspec_on_state_var(V1, DUS, PS),
             % XXXX valid_du_spec(DUS),
             Ann = [src(PS), typed(T1), decl_only(V1), bang(d, V)]
         ;
@@ -1635,7 +1637,8 @@ pstat_stat(PS, S) :-
             S2 = C1-[src(PS), bang(i, V^DUS)|Anns1]
         ; atom(V) ->
             S2 = C1-[src(PS), bang(i, V^(...!))|Anns1]
-        ; V = VDUS^_, atom(VDUS) ->
+        ; V = V1^DUS, atom(V1) ->
+            check_duspec_on_state_var(V1, DUS, PS),
             S2 = C1-[src(PS), bang(i, V)|Anns1]
         ;
             write('ERROR: nonvar after ! (ignored):'(PS1 ! V)),
@@ -1701,7 +1704,8 @@ pstat_eq_stat(PEl, PEr, S) :-
             combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1^DUS)], S)
         ; PE1 = !V1, atomic(V1), \+ data_cons(V1) ->
             combine_stats(ES2, deref_eq(V1, V2)-[src(PEl=PEr), bang(d, V1^(...!))], S)
-        ; PE1 = !V1, V1 = V1v^_DUS, atomic(V1v), \+ data_cons(V1v) ->
+        ; PE1 = !V1, V1 = V1v^DUS, atomic(V1v), \+ data_cons(V1v) ->
+            check_duspec_on_state_var(V1v, DUS, PEl=PEr),
             % XXXX valid_du_spec(DUS),
             combine_stats(ES2, deref_eq(V1v, V2)-[src(PEl=PEr), bang(d, V1)], S)
         ; PE1 = V1, atomic(V1), \+ data_cons(V1) ->
@@ -1908,7 +1912,9 @@ to_var(PE, V, ES) :-
                 V = PE1,
                 ES = empty_stat-[bang(d, V^(...!))]
             )
-        ; PE1 = PE1v^_DUS, atom(PE1v) ->
+        ; PE1 = PE1v^DUS, atom(PE1v) ->
+                % XXX should pass in src statement for error messages
+                check_duspec_on_state_var(PE1v, DUS, PE1v^DUS),
                 V = PE1v,
                 ES = empty_stat-[bang(d, PE1)]
         ; PE1 =.. [PE1F, _|_] ->
@@ -4780,21 +4786,19 @@ alias_fn(Fn) :-
     map('X,vp(X,vpe)', AVs, Args),
     % we use setof to avoid duplicate error messages
     (   setof(Msg, ND^DUSB^DUSA^ (
-            member(ND^DUSB, DUs),         % var ND is DU in fn body
-            (   member(ND, AVs),              % ND is an argument
-                ( member(ND^DUSA, BDUArgs) -> % it's declared DU in type sig
-                    \+ duspec_subsumes(DUSA, DUSB),
-                    Msg = 'Error: argument should be declared more mutable: '(ND,DUSA, DUSB)
-                ;
-                    Msg = 'Error: argument should be declared mutable: '(ND)
-                )
-            ;
-fail, % XXXXXX shouldn't be needed if we add dupecs where sv used??
-                state_var(ND, DUSA),    % ND is a state var
+            member(ND, AVs),              % var ND is an argument
+            member(ND^DUSB, DUs),         % and is DU in fn body
+            ( member(ND^DUSA, BDUArgs) -> % it's declared DU in type sig
                 \+ duspec_subsumes(DUSA, DUSB),
-                Msg = 'Error: state var should be declared more mutable: '(ND,DUSA, DUSB)
-            )), Msgs),
-        % XXX! should do similar or modify above for wo implicit args
+                Msg = 'Error: argument should be declared more mutable: '(ND,DUSA, DUSB)
+            ;
+                Msg = 'Error: argument should be declared mutable: '(ND)
+            )
+            ), Msgs),
+        % note wo implicit args are handled like other vars because
+        % currently their duspecs are added to each instance automatically
+        % XXX! what if state vars have explicit duspecs added - should
+        % check they are compatible!
         member(Msg, Msgs),
         writeln(Msg),
         fail
@@ -5102,6 +5106,16 @@ slash_member(A, AS) :-
         )
     ;
         A = AS
+    ).
+
+% for !V^DUS in statement, check if V is a state var and if so, that DUS
+% is compatible with state var declaration
+check_duspec_on_state_var(V, DUS, Stat) :-
+    ( state_var(V, DUS1), \+ duspec_subsumes(DUS1, DUS) ->
+        writeln('ERROR: incompatible duspec on state variable '(V)),
+        write_src([src(Stat)])
+    ;
+        true
     ).
 
 % get banged vars in stat

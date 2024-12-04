@@ -1,8 +1,10 @@
 % test cases for state vars
 
+import from io. % get_char etc
+
 main :: void -> void
     implicit rw io.
-main(c) = { !putchar(!getchar(void))
+main(c) = { !put_char(!get_char(void))
 }.
 
 % duspec for just second arg of a pair du, so first arg could
@@ -24,7 +26,7 @@ nobang :: ref(int). % XX not mutable
 
 test1 :: ref(int) -> ref(int)
     implicit
-        ro io,  % XX should be rw due to putchar+getchar
+        ro io,  % XX should be rw due to put_char+get_char
         wo undef, % XX
         wo itdef, % XX
         rw nobang, % XX
@@ -37,7 +39,7 @@ test1(ip) = {
     *isdef = 42;
     jp = isdef;
     io1 = io;
-    putchar(!getchar(void)) !io1; % XX ! missing on putchar
+    put_char(!get_char(void)) !io1; % XX ! missing on put_char
     *!io := *io1 !io1; % can say *io is a pointer (but we can't deref it)
     dummy = io1;
     jp
@@ -50,7 +52,7 @@ test2 :: ref(int) -> ref(int)
     pre nosharing
     post ip = ip0.
 test2(ip) = {
-    % !putchar(10);
+    % !put_char(10);
     ip1 = !test1(ip); % defines isdef; XX uses io
     *j = 42;
     i = isdef;
@@ -317,7 +319,7 @@ nested_sv(i) = {
 
 nsv :: int -> int implicit wo isdef, rw io.
 nsv(i) = {
-   !putchar(10);
+   !put_char(10);
    *isdef = i;
    i
 }.
@@ -346,6 +348,7 @@ test_hasabs(b) = {
     % case t2(*a, *b): % XX type, not redefinition error
     case t2(*x, *y):
         *!x := just(false) !hasabs; % XX non-du path of hasabs
+        *!x := just(true) !hasabs^ref(...t2(!,?)); % XX incompatible path
         *!y := nothing !hasabs;
         cases *x of {
 	case just(*z):
@@ -355,18 +358,3 @@ test_hasabs(b) = {
     % t % XX postcond violation
     nothing
 }.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% stubs
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-putchar :: int -> void
-    implicit rw io.
-putchar(c) = { !putchar(c)
-}.
-
-getchar :: void -> int
-    implicit rw io.
-getchar(c) = { !getchar(c)
-}.
-
