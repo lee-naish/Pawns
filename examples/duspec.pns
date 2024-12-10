@@ -1,5 +1,6 @@
 % testing more precise DU spec
 % based on cord.pns
+% See also state.pns for other tests related to state vars
 
 type cb ---> leaf(bs) ; branch(cb, cb).
 type bs = list(pair(bool,bool)). % non-atomic so we can test abstract sharing
@@ -212,14 +213,48 @@ map(f, mbs) = {
 }.
 
 
-% (failed) attempt at simpler example of bogus sharing with polmorphism
-% (problem fixed now anyway)
-app:: (A -> B sharing f(a) = b pre a = abstract post b = abstract)
-      -> A -> B
-    sharing map(f,mbs1)=mbs
-    pre mbs1 = abstract
-    post mbs = abstract.
-app(f, mbs) = {
-    f(mbs)
-}.
+% nested lists etc to test duspec checking using types
+type bss = list(bs).
 
+% duspecs can have two nested DCs with precision, eg os(es1(!)) but
+% further precision can't always be supported due to var path folding:
+% os(es1(os(!))) gives varpath with just os - we don't know if next data
+% constructor is es1 or es2. However, for spec es1(os(es1(!))) the folded
+% path is es1 but due to the type we know the next DC must be os - tricksy!
+type e ---> z ; es1(o) ; es2(o). % multiple DCs with recursive types
+type o ---> os(o).		 % single DC with recursive type
+
+du_spec [
+    any_tl = ...cons(?,!), % any tail
+    tl_bs = ...(cons(?,!)::bs), % tail of type bs (inner list)
+    tl_bss = ...(cons(?,!)::bss), % tail of type bss (outer list)
+    rj = ref(just(!)),
+    rjj = ref(just(just(!))),
+    e1 = es1(!),
+    % XXX add more tricky test cases
+    o1 = o1(!)
+    ].
+
+% XXX want code to test rj, etc
+
+testtype :: list(bs) -> list(bs)
+    sharing testtype(!q^tl_bss)=r
+    pre nosharing
+    post r=q.
+testtype(q) = {
+    cases q of {
+    case nil:
+        return(q)
+    case cons(*h, *p):
+        cases *h of {
+        case nil:
+            return(q)
+        case cons(*h1, *zz):
+            % *!zz := nil !q^any_tl; % XX incompatible declaration: !q^tl_bss
+            *!zz := nil !q^tl_bss; % XX should be OK (NYI)
+            % *!p := nil !q^tl_bs; % XX incompatible declaration: !q^tl_bss
+            % *!p := nil !q^tl_bss; % XX q.cons/2.2 might be modified
+            return(q)
+        }
+    }
+}.

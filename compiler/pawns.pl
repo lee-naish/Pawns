@@ -9,6 +9,11 @@
 % comp.pl has a bit of top level code and the translation to C+adtpp; the
 % other 90% is here.
 
+% XXXX
+%    sharing analysis of (map)
+% 'Error: postcondition violated:'(map,mbs,returnvar.cons/2.2)
+% seems like res=abstract doesn't include res.cons/2.2 path???
+
 % XXX see Bugs file for more things to fix plus XXX here and in *.pns
 % elsewhere (some may be fixed already; plus there are no doubt plenty of
 % unknown bugs and limitations)
@@ -229,11 +234,26 @@ input_file(File) :-
         % assert(type_struct_c(T1, S)),
         fail
     ;
+        % state var declarations - they look like function declarations
+        % but must be processed first because when we process function
+        % declarations we want to know about state vars
+        Fn = (!_), % state var dec
+        (   builtin_fdec((Fn :: ST)) % could separate builtin SV
+        ;
+            member((Fn :: ST), As)
+        ),
+        % state vars asserted in fdec_fdec_struct
+        % XXX could restructure this a bit
+        fdec_fdec_struct(Fn, ST, Fn1, T),
+        assert(nfdec_struct(Fn1, T)),
+        fail
+    ;
         % function declarations
         (   builtin_fdec((Fn :: ST))
         ;
             member((Fn :: ST), As)
         ),
+        Fn \= (!_), % not state var dec
         fdec_fdec_struct(Fn, ST, Fn1, T),
         % inferred postconditions are set aside for processing below
         (has_inferred_post(T) ->
@@ -281,6 +301,7 @@ input_file(File) :-
     ;
         true
     ).  
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % external syntax -> abstract syntax
@@ -1457,12 +1478,27 @@ gather_implicits(Ic, ROIs, RWIs, WOIs) :-
 % as above, returning unsorted lists
 gather_imps(void, [], [], []). % explicit declaration of no implicit args
 gather_imps((ro P), [P], [], []) :-
-    atom(P).
+    ( state_var(P, _DUS) ->
+        true
+    ;
+        writeln('Error: undefined state variable: '(P)),
+        atom(P),
+        DUS = (...!),
+        assert(state_var(P, DUS))
+    ).
 gather_imps((rw P), [], [P^DUS], []) :-
-    state_var(P, DUS).
-gather_imps((rw P), [], [P], []) :-
-    P = P1^_DUS,
-    atom(P1).
+    ( state_var(P, DUS) ->
+        true
+    ;
+        writeln('Error: undefined state variable: '(P)),
+        atom(P),
+        DUS = (...!),
+        assert(state_var(P, DUS))
+    ).
+% currently disallow duspec on rw state vars
+% gather_imps((rw P), [], [P], []) :-
+%     P = P1^_DUS,
+%     atom(P1).
 gather_imps((wo P), [], [], [P]) :-
     atom(P).
 gather_imps((Ic1, Ic2), ROIs, RWIs, WOIs) :-
@@ -3179,25 +3215,27 @@ pair_in_var_list(s(vp(V1, _), vp(V2, _)), ResArgs) :-
 % though).
 % Elsewhere we check all calls with implicit args are banged - we use
 % app_bang annotations rather than bang for these
-check_banged(BVs, MVs, SS, Ann, Stat) :-
-    ( setof(MV, should_bang(MVs, SS, MV), Vs1) -> % Note setof can fail
-        check_banged1(BVs, Vs1, SS, Ann, Stat)
+% XXX! called from alias_stat* where we have types - should pass them in
+% for duspec stuff
+check_banged(BVs, MVs, SS, Ann, Stat, VTm) :-
+    ( setof(MV, should_bang(MVs, SS, MV, VTm), Vs1) -> % Note setof can fail
+        check_banged1(BVs, Vs1, SS, Ann, Stat, VTm)
     ;
         true
     ).
 
 % as above, specialised for single modified var on LHS of assignment
 % XX probably should bang LV even if its not used (or give warning)
-check_banged_lhs(LV, BVs, SS, Ann, Stat) :-
+check_banged_lhs(LV, BVs, SS, Ann, Stat, VTm) :-
     (   setof(MVP, should_bang_lhs(LV, SS, MVP), VPs1) -> % Note setof can fail
-        check_banged_lhs1(BVs, VPs1, SS, Ann, Stat)
+        check_banged_lhs1(BVs, VPs1, SS, Ann, Stat, VTm)
     ;
         true
     ).
 
 % as above with all possibly modified vars
 % BVs is vars with duspecs attached, AMVs is all modified var paths
-check_banged1(BVs, AMVs, SS, Ann, Stat) :-
+check_banged1(BVs, AMVs, SS, Ann, Stat, VTm) :-
     % iterate over all members of AMVs
     (   member(VP, AMVs),
         VP = vp(V, VPC),
@@ -3214,18 +3252,17 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         ;
             true
         ),
+        get_assoc(V, VTm, VType-_), % get type for checking duspec
         % \+ (member(last_use(LUVs), Ann), member(V, LUVs)),
         % we check for du of abstract vars, even if they are banged
         % note we need to check for sharing with abstract, not
         % V=abstract(_)
-        % XXX VVP \= vpe ??? We avoid empty paths now anyway
-        % XXX! fix xxxtype for duspec(?)
         (   aliases(SS, vp(V, VVP), vp(abstract(_AT), _AVP)),
-            VVP \= vpe,
+            VVP \= vpe, % ??? We avoid empty paths now anyway
             member(V^VDUS, BVs),
             % if VVP might be updated we might be updating something that
             % shares with abstract
-            du_spec_vpc_poss_bang(VDUS, xxxtype, VVP)
+            du_spec_vpc_poss_bang(VDUS, VType, VVP)
         ->
             write('Error: abstract variable '),
             print(V),
@@ -3239,8 +3276,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
         ),
         % ignore banged vars with duspecs that (definitely) allow
         % DU for this path
-        % XXX! will need types at some point
-        \+ ( member(V^VDUS, BVs), du_spec_vpc_def_bang(VDUS, xxxtype, VPC)),
+        \+ ( member(V^VDUS, BVs), du_spec_vpc_def_bang(VDUS, VType, VPC)),
         % must be an error...
         write('Error: variable path '),
         print(VP),
@@ -3254,7 +3290,7 @@ check_banged1(BVs, AMVs, SS, Ann, Stat) :-
     ).
 
 % like check_banged1 but we pass in modified variable paths, not variables
-check_banged_lhs1(BVs, AMVPs, SS, Ann, _Stat) :-
+check_banged_lhs1(BVs, AMVPs, SS, Ann, _Stat, VTm) :-
     % print(check_banged_lhs1(BVs, AMVPs, SS, Ann, Stat)), nl,
     % iterate over all members of AMVs
     (   member(VP, AMVPs),
@@ -3294,9 +3330,9 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, _Stat) :-
         ;
             true
         ),
+        get_assoc(V, VTm, VType-_), % get type for checking duspec
         % ignore banged vars with path definitely covered by duspec
-        % XXX! need to compare path with duspec (want types eventually)
-        \+ (member(V^DUS, BVs), du_spec_vpc_def_bang(DUS, xxxtype, VPC)),
+        \+ (member(V^DUS, BVs), du_spec_vpc_def_bang(DUS, VType, VPC)),
         % must be an error...
         write('Error: variable path '),
         write(V),
@@ -3310,14 +3346,14 @@ check_banged_lhs1(BVs, AMVPs, SS, Ann, _Stat) :-
         true
     ).
 
-% XXX! Should pass in type also for better precision
 % Given list of varpaths which may be modified, and sharing set,
 % (nondeterministically) return var path which may be modified
-should_bang(MVs, SS, MVP) :-
+should_bang(MVs, SS, MVP, VTm) :-
     member(V1^DUS, MVs),
     MVP1 = vp(V1, VP1),
     member(s(MVP1, MVP1), SS),          % look for self-sharing
-    du_spec_vpc_poss_bang(DUS, xxxtype, VP1),
+    get_assoc(V1, VTm, V1Type-_), % get type for checking duspec
+    du_spec_vpc_poss_bang(DUS, V1Type, VP1),
     (   MVP = MVP1
     ;
         member(s(MVP1, MVP), SS)
@@ -3779,7 +3815,6 @@ sum_to_type(arrow(_, _, _, _, _, _, _, _, _, _, _), void).
 fold_type_path(T, P, TP) :-
     type_struct(T, TS),
     fold_type_path_sum(TS, P, TP).
-    % ( P \= TP -> print(xxxxxxfold_type_path(P, TP)), nl; true).
 
 % as above for sum type representation
 % New path must be a valid path of type TS, must have the same non-empty
@@ -4060,7 +4095,7 @@ alias_stat(C-Ann, VTm, SS0, SS) :-
     VPl = vp(Vl, vpc('_ref', 1, 1, vpe)),
     % VPr = vp(Vr, vpe),
     findall(BV, member(bang(_, BV), Ann), Bs),
-    check_banged_lhs(VPl, Bs, SS0, Ann, (*Vl := Vr)), % IO
+    check_banged_lhs(VPl, Bs, SS0, Ann, (*Vl := Vr), VTm), % IO
     % find self-sharing (existing) components of RHS
     ( setof(PRA, VPRA^(VPRA=vp(Vr, PRA), member(s(VPRA, VPRA), SS0)), PRAs) ->
         true
@@ -4171,7 +4206,7 @@ alias_stat(C-Ann, VTm, SS0, SS) :-
 
 % case for application of fns/vars with args - return new sharing.
 % Fn can be a constant or a variable.
-alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
+alias_stat_app(V, VTm, Fn, Args, Ann, SS0, SSN) :-
     member(typed_rhs(RType), Ann),
     length(Args, Arity),
     LVP = vp(V, vpe),
@@ -4233,7 +4268,7 @@ alias_stat_app(V, _VTm, Fn, Args, Ann, SS0, SSN) :-
     append(CLFnVs, Args, AArgVs), % just want vars, not paths
     rename_vars(DUDUs, FAs, AArgVs, DUVs),
     append(RWDUIs, DUVs, AllDUs),
-    check_banged(Bs, AllDUs, SS0, Ann, (LVP = app(Fn, AVPs))), % IO
+    check_banged(Bs, AllDUs, SS0, Ann, (LVP = app(Fn, AVPs)), VTm), % IO
     % we include abstract with var for type so it matches any type
     % (but we check later the type is not void)
     append([[vp(abstract(AbsType),vpe)], ROVPs, RWVPs, AVPs], AllVPs),
@@ -4449,6 +4484,8 @@ var_path_shared(Ss, vp(V, VP), PSuff) :-
 % x=abstract; y=abstract results in all components of x and y sharing.
 % XXX re-think and document all the cases here - has been modified a bit
 % with new type paths/folding regime
+% XXXX for cases r of { case dc(... *l ...) ...} we are missing the case
+% where the extra path for l is empty.  
 rpath_aliases([], _, _, _, _, []).
 rpath_aliases([P|Ps], RT, VPr, LSum, VPl, Ss) :-
     VPl = vp(Vl, Pl),
@@ -4472,6 +4509,9 @@ rpath_aliases([P|Ps], RT, VPr, LSum, VPl, Ss) :-
         % Note: this may fail if the type of l is atomic and thus has no
         % paths (r has one path with a single ref). Thus we use a maybe to
         % return the new path for l.
+        % XXXX with new abs domain r._ref.cons/2.2 *isn't* folded to r._ref
+        % When VPl = vp(Vl, vpc(_ref,1,1,vpe)) we are losing the alias
+        % with this path
         Pr = vpc(DC, Arity, ArgN, _),
         app_vpc(Pr, P, Pr1),
         sum_to_type(LSum, LT),
@@ -4690,7 +4730,7 @@ alias_stat_case(Var, VTm, T, SS0, case_dc(DC, Arity, As, S), SS) :-
     type_struct(T, TS),
     filter(alias_var_dcons_ok(Var, TS, DC, Arity), SS0, SS1),
     TS = sum(_, Ps),
-    % XXX should check DC is well typed!!!
+    % XXX should check DC is well typed in type checking
     ( member(prod(DC, Arity, Sums), Ps) ->
         eq_case_args(As, Sums, TS, 1, Var, DC, Arity, SS0, SSN),
         sort(SSN, SSN1),
@@ -4708,21 +4748,18 @@ alias_stat_case(Var, VTm, T, SS0, case_dc(DC, Arity, As, S), SS) :-
 % create alias pairs for var components and args (which must be *var)
 eq_case_args([], _, _, _, _, _, _, _, []).
 eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
-    % case is called with a top level type
-    % TS=sum(_,[prod([Sum|Sums])...])
-    % and the case args have the type one level down (ie, Sum).
-    % They must be a reference to the top level, sum_ref_anc(_, 2), or a
-    % reference to another type, sum_ref(...).
-    (   Sum = sum_ref(RTN1, _Sum1),
-        type_struct(RTN1, RSum), % needed to get sum_ref_anc in RSum right
-        Pl1 = vpc(DC, Arity, A, vpe) % use only paths with DC/Arity at start
-    ;
-        Sum = sum_ref_anc(TSN, 2),
-        type_struct(TSN, RSum), % needed to get sum_ref_anc in RSum right
-        Pl1 = vpe % use all paths in Vl due to type folding
-    ),
+    % construct path for argument and top level alias
+    Pl1 = vpc(DC, Arity, A, vpe),
     VPl = vp(Vl, Pl1),
     VPr = vp(Vr, vpc('_ref', 1, 1, vpe)),
+    mk_alias_pair(VPl, VPr, S),  % *Vr aliases arg of Vl
+    mk_alias_pair(VPr, VPr, S1), % self-alias
+    % For the longer paths we call rpath_aliases and we use the type of
+    % the argument. The case type is sum(_,[prod([Sum|Sums])...]) and we
+    % look for the type inside Sum and reconstruct the sum (RSum)
+    % because it may have been folded.
+    arg(1, Sum, TSN), % Sum is sum_ref_anc(TSN, 2) or sum_ref(TSN, _)
+    type_struct(TSN, RSum),
     findall(LP, var_path_shared(SS0, VPl, LP), LPs),
     % could move this earlier
     ( LPs = [] ->
@@ -4730,13 +4767,13 @@ eq_case_args([Vr|As], [Sum|Sums], LSum, A, Vl, DC, Arity, SS0, SSN) :-
     ;
         true
     ),
-    mk_alias_pair(VPr, VPr, S), % self-alias (not needed???)
-    % left and right a bit confused - in rpath_aliases left is the new
+    % left and right a bit confusing - in rpath_aliases left is the new
     % var being bound and right is the existing var; for case the new
-    % vars being bound are textually after the existing var
+    % vars being bound are textually after the existing var, eg
+    % cases l of {case dc(*r)} is like *r = dcarg(l)
     sum_to_type(LSum, RT),
     rpath_aliases(LPs, RT, VPl, RSum, VPr, SSN1),
-    append(SSN1, [S|SSN2], SSN),
+    append(SSN1, [S, S1|SSN2], SSN),
     A1 is A + 1,
     eq_case_args(As, Sums, LSum, A1, Vl, DC, Arity, SS0, SSN2).
 
@@ -4936,6 +4973,9 @@ alias_fn(_).
 % operator (don't strictly need !s1 - can always use !/s1 instead so maybe
 % delete it? XXX).
 % !::t - du if path empty and subterm has type t
+% Could also potentially add
+% !::type_of(v) to support polymorphism better (would need to pass in VTm
+% rather than just a single type, or process duspecs after type checking)
 % Examples:
 % ...! = any subterm DU (default for !var with no duspec)
 % dc(!,?,!) = first and third args of dc at top level are DU
@@ -4968,7 +5008,7 @@ alias_fn(_).
 % by using a temporary var and assigning that to the state var at the end
 % (could possibly give warning/error instead).
 
-% check if first duspec is more general than second
+% check if first duspec is (definitely) more general than second
 % (ie, du subterms of first spec is a superset of second)
 % XXX stub - best extend this, though it's not *so* important currently
 % as we don't infer duspec annotations on ! vars in statements and the
@@ -4976,6 +5016,7 @@ alias_fn(_).
 % Messy, may succeed multiple times; need to be careful of non-termination.
 % XXX uses expand_du_spec at top level only - better to allow at all
 % levels of term and apply when src is read rather than here.
+% XX could this be more precise with type info?
 duspec_subsumes(DUS1, DUS2) :-
     expand_du_spec(DUS1, DUS3),
     expand_du_spec(DUS2, DUS4),
@@ -4987,7 +5028,10 @@ duspec_subsumes1(...!, _).
 duspec_subsumes1(_, ?).
 duspec_subsumes1(!, !).
 duspec_subsumes1(!_, !). % XXX delete?
-duspec_subsumes1(!::t, !::t).
+duspec_subsumes1(!::T1, !::T2) :-
+    % XXX should do canon_type_name just once, before this
+    canon_type_name(T1, T),
+    canon_type_name(T2, T).
 duspec_subsumes1(!DUS1, !DUS) :-
     duspec_subsumes1(DUS1, DUS).
 duspec_subsumes1(!DUS1, DUS) :-
@@ -5016,7 +5060,7 @@ duspec_subsumes1(DC1, DC2) :-
 % cell. If we use ...cons(?,!) instead, the duspec covers all cases so
 % du_spec_vpc_def_bang(...cons(?,!), list(int), vpc(cons, 2, 2, vpe))
 % succeeds.
-% XXX best use type at some point so we can deal with folding better.
+% XXX! best use type at some point so we can deal with folding better.
 % Eg, du_spec_vpc_def_bang(just(!), maybe(int), vpc(just, 1, 1, vpe))
 % should succeed (but currently fails) since the path is not folded for
 % this type.
@@ -5024,22 +5068,25 @@ duspec_subsumes1(DC1, DC2) :-
 % and ref.
 du_spec_vpc_def_bang(DUS, Type, VPC) :-
     expand_du_spec(DUS, DUS1),
-    du_spec_vpc_def_bang1(DUS1, Type, VPC).
+    type_struct(Type, ST),
+    du_spec_vpc_def_bang1(DUS1, ST, VPC).
 
 % as above with expand_du_spec done
-du_spec_vpc_def_bang1(!, _Type, vpe).
-du_spec_vpc_def_bang1(!_, _Type, vpe). % XXX delete?
-du_spec_vpc_def_bang1(!::T, T, vpe). % XXX! assumes type known
-du_spec_vpc_def_bang1(!DUS, _Type, VPC) :-
-    du_spec_vpc_def_bang1(DUS, _, VPC).
-du_spec_vpc_def_bang1(DUS/_, Type, VPC) :-
-    du_spec_vpc_def_bang1(DUS, Type, VPC).
-du_spec_vpc_def_bang1(_/DUS, Type, VPC) :-
-    du_spec_vpc_def_bang1(DUS, Type, VPC).
-% du_spec_vpc_def_bang1(...DUS, _Type, VPC) :-
+du_spec_vpc_def_bang1(!, _ST, vpe).
+du_spec_vpc_def_bang1(!_, _ST, vpe). % XXX delete?
+du_spec_vpc_def_bang1(!::T, T1, vpe) :-
+    % XXX should do canon_type_name just once, before this
+    canon_type_name(T, T1).
+du_spec_vpc_def_bang1(!DUS, ST, VPC) :-
+    du_spec_vpc_def_bang1(DUS, ST, VPC).
+du_spec_vpc_def_bang1(DUS/_, ST, VPC) :-
+    du_spec_vpc_def_bang1(DUS, ST, VPC).
+du_spec_vpc_def_bang1(_/DUS, ST, VPC) :-
+    du_spec_vpc_def_bang1(DUS, ST, VPC).
+% du_spec_vpc_def_bang1(...DUS, _ST, VPC) :-
 %     app_vpc(_, VPC1, VPC),
 %     du_spec_vpc_def_bang1(DUS, _, VPC1).
-du_spec_vpc_def_bang1(...DUS, _Type, VPC) :-
+du_spec_vpc_def_bang1(...DUS, _ST, VPC) :-
     functor(DUS, F, N),
     ( DUS = ! ->
         true
@@ -5050,10 +5097,34 @@ du_spec_vpc_def_bang1(...DUS, _Type, VPC) :-
         app_vpc(_, vpc(F, N, A, vpe), VPC),
         arg(A, DUS, !)
     ).
+du_spec_vpc_def_bang1(DUS, ST, VPC) :-
+    VPC = vpc(F, N, A, VPC1),
+    F \= '!',
+    F \= '/',
+    F \= '...',
+    F \= ?,
+    ( DUS = ref(_) ->
+        % ST = sum_ref_anc(_, _) impossible here
+        ST = sum_ref(_, ST1),
+        F = '_ref',
+        N = 1
+    ;
+        functor(DUS, F, N),
+        ST = sum(_, Prods),
+        member(prod(F, N, ST1), Prods)
+    ),
+    % if there are multiple data constructors in the type and
+    % ST1 has a sum_ref_anc node that points back to before ST1
+    % VPC may be folded due to recursion in type and top level
+    % term may not be F/N, so we should fail
+    % XXX! currently just ceck for *any* recursion in type - could do
+    % better, eg maybe(list(int))
+    \+ (Prods \= [_], has_ref_anc(ST, F, N)),
+    % top level of VPC term must be F/N so continue with arg A
+    arg(A, DUS, DUS1),
+    du_spec_vpc_def_bang1(DUS1, ST1, VPC1).
 % XXXX below only safe if there is no recursion through (folding of) ref/1
-du_spec_vpc_def_bang1(ref(!), _Type, vpc('_ref', 1, 1, vpe)).
-du_spec_vpc_def_bang1(ref(DUS), _Type, vpc('_ref', 1, 1, VPC)) :-
-    du_spec_vpc_def_bang1(DUS, _T, VPC).
+du_spec_vpc_def_bang1(ref(!), _ST, vpc('_ref', 1, 1, vpe)).
 
 % checks if duspec *possibly* allows DU for a given var path
 % XXX imprecise - may be paths that have no ! but this succeeds
@@ -5064,22 +5135,26 @@ du_spec_vpc_def_bang1(ref(DUS), _Type, vpc('_ref', 1, 1, VPC)) :-
 % XXX best use type at some point so we can deal with folding better.
 du_spec_vpc_poss_bang(DUS, Type, VPC) :-
     expand_du_spec(DUS, DUS1),
-    du_spec_vpc_poss_bang1(DUS1, Type, VPC).
+    type_struct(Type, ST),
+    du_spec_vpc_poss_bang1(DUS1, ST, VPC).
 
 % as above with expand_du_spec done
-du_spec_vpc_poss_bang1(!, _Type, vpe).
-du_spec_vpc_poss_bang1(!::Type, Type, vpe). % XXX need types
-du_spec_vpc_poss_bang1(!_, _Type, vpe). % XXX delete?
-du_spec_vpc_poss_bang1(!DUS, _Type, VPC) :- % XXX delete?
-    du_spec_vpc_poss_bang1(DUS, _, VPC).
-du_spec_vpc_poss_bang1(DUS/_, Type, VPC) :-
-    du_spec_vpc_poss_bang1(DUS, Type, VPC).
-du_spec_vpc_poss_bang1(_/DUS, Type, VPC) :-
-    du_spec_vpc_poss_bang1(DUS, Type, VPC).
-du_spec_vpc_poss_bang1(...DUS, _Type, VPC) :-
+du_spec_vpc_poss_bang1(!, _ST, vpe).
+du_spec_vpc_poss_bang1(!::T, ST, vpe) :- % XXX need types
+    % XXX should do canon_type_name just once, before this
+    canon_type_name(T, T1),
+    arg(1, ST, T1). % XXX for sum_ref we have a ref wrapper
+du_spec_vpc_poss_bang1(!_, _ST, vpe). % XXX delete?
+du_spec_vpc_poss_bang1(!DUS, ST, VPC) :- % XXX delete?
+    du_spec_vpc_poss_bang1(DUS, ST, VPC).
+du_spec_vpc_poss_bang1(DUS/_, ST, VPC) :-
+    du_spec_vpc_poss_bang1(DUS, ST, VPC).
+du_spec_vpc_poss_bang1(_/DUS, ST, VPC) :-
+    du_spec_vpc_poss_bang1(DUS, ST, VPC).
+du_spec_vpc_poss_bang1(...DUS, ST, VPC) :-
     app_vpc(_, VPC1, VPC),
-    du_spec_vpc_poss_bang1(DUS, _, VPC1).
-du_spec_vpc_poss_bang1(DUS1, _Type, VPC) :-
+    du_spec_vpc_poss_bang1(DUS, ST, VPC1).
+du_spec_vpc_poss_bang1(DUS1, ST, VPC) :-
     ( DUS1 = ref(_) -> % convert ref/1 to '_ref/1'
         F1 = '_ref',
         N = 1
@@ -5092,10 +5167,18 @@ du_spec_vpc_poss_bang1(DUS1, _Type, VPC) :-
         F1 = F
     ),
     % vpc(F1, N...) could be anywhere in path due to folding
-    % (XXX! make more precise with types)
-    app_vpc(_, vpc(F1, N, A, VPC1), VPC),
+    % XXX! currently we only enforce F1/N at the top level for types
+    % with no recursion.  Could be more precise, eg maybe(list(int)) has
+    % recursion in it but just/1 has to be the top level
+    app_vpc(VPC2, vpc(F1, N, A, VPC1), VPC),
+    ( has_ref_anc(ST, F1, N) ->
+        true
+    ;
+        VPC2 = vpe
+    ),
     arg(A, DUS1, DUS2),
-    du_spec_vpc_poss_bang1(DUS2, _, VPC1).
+    ST1 = ST,  % XXX! need to recompute type from ST and path
+    du_spec_vpc_poss_bang1(DUS2, ST1, VPC1).
 
 % return members of A1/A2/A3 etc
 slash_member(A, AS) :-
@@ -5107,6 +5190,9 @@ slash_member(A, AS) :-
     ;
         A = AS
     ).
+
+% XXXXXX! stub
+maybe_folded(_N, _ST).
 
 % for !V^DUS in statement, check if V is a state var and if so, that DUS
 % is compatible with state var declaration
@@ -5649,6 +5735,8 @@ san('bst.pns').
 spy(add_typed_anns_dcapp).
 sa(xs = cons(1,nil); *tp = mt; foldl_du(xs,bst_insert_du,!tp)).
 
+san('duspec.pns').
+san('state.pns').
 [pawns].
 [pawns,comp].
 ['../pawns.pl', '../comp.pl'].
