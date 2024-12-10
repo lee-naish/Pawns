@@ -347,12 +347,12 @@ test_hasabs(b) = {
     cases *hasabs of {
     % case t2(*a, *b): % XX type, not redefinition error
     case t2(*x, *y):
-        *!x := just(false) !hasabs; % XX non-du path of hasabs
-        *!x := just(true) !hasabs^ref(...t2(!,?)); % XX incompatible path
+        % *!x := just(false) !hasabs; % XX hasabs._ref.t2/2.1 might be modified
+        *!x := just(true) !hasabs^ref(...t2(!,?));
         *!y := nothing !hasabs;
         cases *x of {
 	case just(*z):
-             *!z := true !x!hasabs % non-du path, abstract sharing
+             *!z := true !x!hasabs % XX hasabs._ref.t2/2.1.just non-DU, abs
         }
     };
     % t % XX postcond violation

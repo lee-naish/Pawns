@@ -9,11 +9,6 @@
 % comp.pl has a bit of top level code and the translation to C+adtpp; the
 % other 90% is here.
 
-% XXXX
-%    sharing analysis of (map)
-% 'Error: postcondition violated:'(map,mbs,returnvar.cons/2.2)
-% seems like res=abstract doesn't include res.cons/2.2 path???
-
 % XXX see Bugs file for more things to fix plus XXX here and in *.pns
 % elsewhere (some may be fixed already; plus there are no doubt plenty of
 % unknown bugs and limitations)
@@ -563,7 +558,7 @@ expand_du_spec(Name, DUS) :-
 do_du_spec(du_spec(DUs)) :-
     member(Name = DUS, DUs),
     ( du_spec(Name, _) ->
-        writeln('DU spec name repeated: '(DUS))
+        writeln('DU spec name repeated: '(Name))
     ;
         assert(du_spec(Name, DUS))
     ),
@@ -1327,8 +1322,8 @@ canon_ct(dcons(C, Ts), dcons(C, Ts1)) :-
 % implicit arguments for an inner arrow but nothing for an outer arrow we can
 % use "implicit void".
 canon_type_name(ST, T) :-
-    ( ctn1([], ST, T) ->
-        true
+    ( ctn1([], ST, T1) ->
+        T = T1
     ;
         writeln('Error: dodgey type name:'(ST)),
         T = ref(void) % carry on with default type
@@ -4988,6 +4983,10 @@ alias_fn(_).
 % ...cons(!::int, ?) = first arg of any cons cell that is type int
 % ...cons(!::list(int), ?) = first arg of any cons cell that is type list(int)
 % 
+% XXX should be able to have !,?,/ etc as data constructors in duspecs
+% - maybe we could use ? / f(...) to mean f is to be used as a data
+% constructor (rather than duspec builder), even if f is !,?,/ etc
+%
 % Note: initial dupsec support was for explicit arguments (plus vars
 % in statements to check argument duspecs are correct).  It can also
 % be useful for state variables.  State variable declarations
@@ -5069,13 +5068,14 @@ duspec_subsumes1(DC1, DC2) :-
 du_spec_vpc_def_bang(DUS, Type, VPC) :-
     expand_du_spec(DUS, DUS1),
     type_struct(Type, ST),
-    du_spec_vpc_def_bang1(DUS1, ST, VPC).
+    once(du_spec_vpc_def_bang1(DUS1, ST, VPC)). % avoid multiple solns
 
 % as above with expand_du_spec done
 du_spec_vpc_def_bang1(!, _ST, vpe).
 du_spec_vpc_def_bang1(!_, _ST, vpe). % XXX delete?
-du_spec_vpc_def_bang1(!::T, T1, vpe) :-
+du_spec_vpc_def_bang1(!::T, ST, vpe) :-
     % XXX should do canon_type_name just once, before this
+    arg(1, ST, T1),
     canon_type_name(T, T1).
 du_spec_vpc_def_bang1(!DUS, ST, VPC) :-
     du_spec_vpc_def_bang1(DUS, ST, VPC).
@@ -5083,48 +5083,69 @@ du_spec_vpc_def_bang1(DUS/_, ST, VPC) :-
     du_spec_vpc_def_bang1(DUS, ST, VPC).
 du_spec_vpc_def_bang1(_/DUS, ST, VPC) :-
     du_spec_vpc_def_bang1(DUS, ST, VPC).
-% du_spec_vpc_def_bang1(...DUS, _ST, VPC) :-
-%     app_vpc(_, VPC1, VPC),
-%     du_spec_vpc_def_bang1(DUS, _, VPC1).
-du_spec_vpc_def_bang1(...DUS, _ST, VPC) :-
-    functor(DUS, F, N),
-    ( DUS = ! ->
-        true
-    ;
-        F \= '/',
-        F \= '...',
-        F \= ?,
-        app_vpc(_, vpc(F, N, A, vpe), VPC),
-        arg(A, DUS, !)
-    ).
-du_spec_vpc_def_bang1(DUS, ST, VPC) :-
+du_spec_vpc_def_bang1(...DUS, ST, VPC) :-
+   % Top level match.  If DUS is a data constructor there is overlap
+   % with the next clause.  However, this clause covers the cases where
+   % DUS is ! or / etc
+   du_spec_vpc_def_bang1(DUS, ST, VPC).
+du_spec_vpc_def_bang1(...DUS, ST, VPC) :-
+    % strip data constructor in path and continue
     VPC = vpc(F, N, A, VPC1),
-    F \= '!',
+    % we extract the arg type and recompute the sum to avoid any problems
+    % with folding (could avoid this in some cases)
+    ( F = '_ref', N = 1 ->
+        ST = sum_ref(ref(T1), _)
+    ;
+        ST = sum(_, Prods),
+        member(prod(F, N, SRs), Prods),
+        nth1(A, SRs, SumRef), % SumRef is sum_ref or sum_ref_anc
+        arg(1, SumRef, ref(T1))
+    ),
+    type_struct(T1, ST1),
+    du_spec_vpc_def_bang1(...DUS, ST1, VPC1).
+du_spec_vpc_def_bang1(DUS0, ST, VPC) :-
+    % match outermost data constructor of DUS0 and path then continue
+    % recursively with arg.
+    % For recursive types that might be folded, we fail *unless
+    % we have a ... wrapper* (more overlap between clauses but we need
+    % to have different handling of data constructors depending on
+    % wheather they are inside ... due to folding)
+    ( DUS0 = (...DUS) ->
+        Dots = true
+    ;
+        DUS = DUS0,
+        Dots = false
+    ),
+    VPC = vpc(F, N, A, VPC1),
+    F \= '!', % XXX should be able to have ! etc as DC in duspecs
     F \= '/',
     F \= '...',
     F \= ?,
     ( DUS = ref(_) ->
-        % ST = sum_ref_anc(_, _) impossible here
-        ST = sum_ref(_, ST1),
+        ST = sum_ref(ref(T1), _),
         F = '_ref',
         N = 1
     ;
         functor(DUS, F, N),
         ST = sum(_, Prods),
-        member(prod(F, N, ST1), Prods)
+        member(prod(F, N, SRs), Prods),
+        nth1(A, SRs, SumRef), % SumRef is sum_ref or sum_ref_anc
+        arg(1, SumRef, ref(T1))
     ),
+    type_struct(T1, ST1),
     % if there are multiple data constructors in the type and
     % ST1 has a sum_ref_anc node that points back to before ST1
     % VPC may be folded due to recursion in type and top level
-    % term may not be F/N, so we should fail
-    % XXX! currently just ceck for *any* recursion in type - could do
-    % better, eg maybe(list(int))
-    \+ (Prods \= [_], has_ref_anc(ST, F, N)),
-    % top level of VPC term must be F/N so continue with arg A
+    % term may not be F/N, so we should fail without ... wrapper
+    \+ (dots = false, Prods \= [_], has_ref_anc(ST, F, N)),
+    % VPC term must have F/N (at top level if no ...) so continue with arg A
     arg(A, DUS, DUS1),
-    du_spec_vpc_def_bang1(DUS1, ST1, VPC1).
-% XXXX below only safe if there is no recursion through (folding of) ref/1
-du_spec_vpc_def_bang1(ref(!), _ST, vpc('_ref', 1, 1, vpe)).
+    ( Dots = true ->
+        DUS2 = (... DUS1)
+    ;
+        DUS2 = DUS1
+    ),
+    du_spec_vpc_def_bang1(DUS2, ST1, VPC1).
 
 % checks if duspec *possibly* allows DU for a given var path
 % XXX imprecise - may be paths that have no ! but this succeeds
@@ -5136,7 +5157,7 @@ du_spec_vpc_def_bang1(ref(!), _ST, vpc('_ref', 1, 1, vpe)).
 du_spec_vpc_poss_bang(DUS, Type, VPC) :-
     expand_du_spec(DUS, DUS1),
     type_struct(Type, ST),
-    du_spec_vpc_poss_bang1(DUS1, ST, VPC).
+    once(du_spec_vpc_poss_bang1(DUS1, ST, VPC)). % avoid multiple solns
 
 % as above with expand_du_spec done
 du_spec_vpc_poss_bang1(!, _ST, vpe).
@@ -5156,6 +5177,7 @@ du_spec_vpc_poss_bang1(...DUS, ST, VPC) :-
     du_spec_vpc_poss_bang1(DUS, ST, VPC1).
 du_spec_vpc_poss_bang1(DUS1, ST, VPC) :-
     ( DUS1 = ref(_) -> % convert ref/1 to '_ref/1'
+        ST = sum_ref(_, ST1),
         F1 = '_ref',
         N = 1
     ;
@@ -5168,17 +5190,23 @@ du_spec_vpc_poss_bang1(DUS1, ST, VPC) :-
     ),
     % vpc(F1, N...) could be anywhere in path due to folding
     % XXX! currently we only enforce F1/N at the top level for types
-    % with no recursion.  Could be more precise, eg maybe(list(int)) has
-    % recursion in it but just/1 has to be the top level
+    % with no recursion.  Best also check there are multiple data
+    % constructors in the type (if there is just one it is OK)
     app_vpc(VPC2, vpc(F1, N, A, VPC1), VPC),
+    arg(A, DUS1, DUS2),
     ( has_ref_anc(ST, F1, N) ->
+        % XXXX! should compute type ST1 from ST+path and
+        % recurse. Not done yet so we just succeed
+        % du_spec_vpc_poss_bang1(DUS2, ST1, VPC1)
         true
     ;
-        VPC2 = vpe
-    ),
-    arg(A, DUS1, DUS2),
-    ST1 = ST,  % XXX! need to recompute type from ST and path
-    du_spec_vpc_poss_bang1(DUS2, ST1, VPC1).
+        % XXX possibly not tested
+        VPC2 = vpe,
+        ST = sum(_, Prods),
+        member(prod(F, N, SRs), Prods),
+        nth1(A, SRs, sum_ref(ref(_), ST1)),
+        du_spec_vpc_poss_bang1(DUS2, ST1, VPC1)
+    ).
 
 % return members of A1/A2/A3 etc
 slash_member(A, AS) :-
@@ -5190,9 +5218,6 @@ slash_member(A, AS) :-
     ;
         A = AS
     ).
-
-% XXXXXX! stub
-maybe_folded(_N, _ST).
 
 % for !V^DUS in statement, check if V is a state var and if so, that DUS
 % is compatible with state var declaration

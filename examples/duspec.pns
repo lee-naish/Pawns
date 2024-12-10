@@ -1,5 +1,5 @@
 % testing more precise DU spec
-% based on cord.pns
+% based on cord.pns; other stuff at end
 % See also state.pns for other tests related to state vars
 
 type cb ---> leaf(bs) ; branch(cb, cb).
@@ -226,22 +226,18 @@ type o ---> os(o).		 % single DC with recursive type
 
 du_spec [
     any_tl = ...cons(?,!), % any tail
-    tl_bs = ...(cons(?,!)::bs), % tail of type bs (inner list)
-    tl_bss = ...(cons(?,!)::bss), % tail of type bss (outer list)
-    rj = ref(just(!)),
-    rjj = ref(just(just(!))),
+    tl_bs = ...(cons(?,!::bs)), % tail of type bs (inner list)
+    tl_bss = ...(cons(?,!::bss)), % tail of type bss (outer list)
     e1 = es1(!),
     % XXX add more tricky test cases
     o1 = o1(!)
     ].
 
-% XXX want code to test rj, etc
-
-testtype :: list(bs) -> list(bs)
-    sharing testtype(!q^tl_bss)=r
+type_bss :: bss -> bss
+    sharing type_bss(!q^tl_bs)=r
     pre nosharing
     post r=q.
-testtype(q) = {
+type_bss(q) = {
     cases q of {
     case nil:
         return(q)
@@ -250,11 +246,69 @@ testtype(q) = {
         case nil:
             return(q)
         case cons(*h1, *zz):
-            % *!zz := nil !q^any_tl; % XX incompatible declaration: !q^tl_bss
-            *!zz := nil !q^tl_bss; % XX should be OK (NYI)
-            % *!p := nil !q^tl_bs; % XX incompatible declaration: !q^tl_bss
-            % *!p := nil !q^tl_bss; % XX q.cons/2.2 might be modified
+            % *!zz := nil !q^any_tl; % XX incompatible
+            *!zz := nil !q^tl_bs;
+            % *!p := nil !q^tl_bs; % XX q.cons/2.2
+            % *!p := nil !q^tl_bss; % XX incompatible
             return(q)
         }
     }
 }.
+
+type mbs = maybe(bs).
+type mmb = maybe(maybe(bool)).
+type mmbs = maybe(maybe(bs)).
+
+% list(...) is recursive so if a path starts with cons it might not be the
+% top level due to folding, so duspec loses precision and can't use outermost
+% cons(?,!) but needs ...cons(?,!) instead
+% ref(maybe(maybe(...))), maybe(maybe(...)) not recursive at outer levels
+% so there is no folding and duspec shouldn't lose precision
+du_spec [
+    tl = cons(?,!), % tail at top level - won't work
+    rj = ref(just(!)),
+    rjj = ref(just(just(!))),
+    j = just(!),
+    jj = just(just(!)),
+    j_bs = just(!::bs),
+    j_mbs = just(!::mbs),
+    a_bs = ...(!::bs),
+    aj_bs = ...just(!::bs),
+    aj_mbs = ...just(!::mbs)
+    ].
+
+typemmb :: mmbs -> mmbs
+    sharing typemmb(!q^jj)=r
+    pre nosharing
+    post r=q.
+typemmb(q) = {
+    *rq = q;
+    q1 = q;
+    cases q of {
+    case just(*p):
+        % *!p := nothing !q^j;  % XX incompatible with ^jj
+        % *!p := nothing !q^jj;  % XX q.just might be modified
+        % *!p := nothing !q1^j_bs !q^j!rq^rj;  % XX incompat, q1.just
+        % *!p := nothing !q1^j_mbs !q^j!rq^rj;  % XX incompat
+        cases *p of {
+        case just(*zz):
+            % *!zz := nil !q^jj!rq^rjj!q1^j_bs % XX q1.just.just
+            % *!zz := nil !q^jj!rq^rjj!q1^a_jbs % XX q1.just.just
+            *!zz := nil !q^jj!rq^rjj!q1^a_bs
+            % *!zz := nil !q^jj!rq^rjj!q1^jj
+            % *!zz := nil !q^j % incompat, q.just.just, rq._ref.just.just
+        }
+    };
+    l = cons(true, cons(false, nil));
+    cases l of {
+    case cons(*h, *t):
+        % *!t := nil !l^tl % XX path l.cons/2.2 might be modified
+        *!t := nil !l^any_tl
+    };
+    use(rq); use(l); use(q1);
+    return(q)
+}.
+
+% dummy use so vars are considered alive
+use:: T -> void.
+use(t) = void.
