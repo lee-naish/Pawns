@@ -246,8 +246,8 @@ type_bss(q) = {
         case nil:
             return(q)
         case cons(*h1, *zz):
-            % *!zz := nil !q^any_tl; % XX incompatible
             *!zz := nil !q^tl_bs;
+            % *!zz := nil !q^any_tl; % XX incompatible
             % *!p := nil !q^tl_bs; % XX q.cons/2.2
             % *!p := nil !q^tl_bss; % XX incompatible
             return(q)

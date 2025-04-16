@@ -125,13 +125,26 @@ compile(BNS) :-
         true
     ),  
     nl, nl,
-    (    nfdec_struct(Fn, _),
+    % output compiled function definitions: imported ones first (so
+    % fudges such as need_io() that have #include <stdio.h> occur before
+    % any calls to printf etc.), then the rest
+    (   nfdec_struct(Fn, _),
         \+ builtin_func_arity(Fn, _),
+        imported(Fn),
         comp_fn(Fn),
         fail
     ;
-        told
+        true
     ),
+    (   nfdec_struct(Fn, _),
+        \+ builtin_func_arity(Fn, _),
+        \+ imported(Fn),
+        comp_fn(Fn),
+        fail
+    ;
+        true
+    ),
+    told,
     name('.adt', DADT),
     append(BNS, DADT, F1),
     name(File1, F1),

@@ -18,8 +18,10 @@ CC=gcc
 # adt stuff causes *lots* of warnings due to implicit coercion between
 # things with size sizeof(void*) currently, so we turn off all warnings
 # with -w (for now XXX useful to have them when mixing C and Pawns)
-CFLAGS=-w
-CFLAGS=-O3 -w
+# Also, we need -Wno-incompatible-pointer-types -Wno-int-conversion for
+# more recent versions of gcc (some old warnings are now errors)
+CFLAGS=-w -Wno-incompatible-pointer-types -Wno-int-conversion
+CFLAGS=-O3 -w -Wno-incompatible-pointer-types -Wno-int-conversion
 
 # We need to link with the (Boehm++) garbage collector currently, which
 # should really be installed somewhere standard, but just in case its

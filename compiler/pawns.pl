@@ -3210,8 +3210,6 @@ pair_in_var_list(s(vp(V1, _), vp(V2, _)), ResArgs) :-
 % though).
 % Elsewhere we check all calls with implicit args are banged - we use
 % app_bang annotations rather than bang for these
-% XXX! called from alias_stat* where we have types - should pass them in
-% for duspec stuff
 check_banged(BVs, MVs, SS, Ann, Stat, VTm) :-
     ( setof(MV, should_bang(MVs, SS, MV, VTm), Vs1) -> % Note setof can fail
         check_banged1(BVs, Vs1, SS, Ann, Stat, VTm)
@@ -4258,7 +4256,6 @@ alias_stat_app(V, VTm, Fn, Args, Ann, SS0, SSN) :-
     % Bs has duspecs for each var, from bang() annotations.
     % DUs, DUVs, AllDUs don't but we get their annotations from
     % DUDUs+RWDUIs.  check_banged needs the annotations
-    % XXX! We should also pass in types
     map('X,vp(X,_)', CLFnVs, CLFnPs),
     append(CLFnVs, Args, AArgVs), % just want vars, not paths
     rename_vars(DUDUs, FAs, AArgVs, DUVs),
@@ -4829,8 +4826,8 @@ alias_fn(Fn) :-
             ), Msgs),
         % note wo implicit args are handled like other vars because
         % currently their duspecs are added to each instance automatically
-        % XXX! what if state vars have explicit duspecs added - should
-        % check they are compatible!
+        % XXX What if state vars have explicit duspecs added - could
+        % check they are compatible (currently disallow)
         member(Msg, Msgs),
         writeln(Msg),
         fail
@@ -5059,12 +5056,6 @@ duspec_subsumes1(DC1, DC2) :-
 % cell. If we use ...cons(?,!) instead, the duspec covers all cases so
 % du_spec_vpc_def_bang(...cons(?,!), list(int), vpc(cons, 2, 2, vpe))
 % succeeds.
-% XXX! best use type at some point so we can deal with folding better.
-% Eg, du_spec_vpc_def_bang(just(!), maybe(int), vpc(just, 1, 1, vpe))
-% should succeed (but currently fails) since the path is not folded for
-% this type.
-% Currently (to be safe) we only allow dcs immediately inside '...'
-% and ref.
 du_spec_vpc_def_bang(DUS, Type, VPC) :-
     expand_du_spec(DUS, DUS1),
     type_struct(Type, ST),

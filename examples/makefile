@@ -21,9 +21,10 @@ LDLIBS=-Wl,-rpath -Wl,$(GCLIBDIR) -l$(GC)
 # adt stuff causes *lots* of warnings due to implicit coercion between
 # things with size sizeof(void*) currently, so we turn off all warnings
 # with -w (for now XXX useful to have them when mixing C and Pawns)
-CFLAGS=-O3 -w
-CFLAGS=-O3 -w -DREDIRECT_MALLOC=GC_malloc -DIGNORE_FREE
-CFLAGS=-O3 -w
+# Also, we need -Wno-incompatible-pointer-types -Wno-int-conversion for
+# more recent versions of gcc (some old warnings are now errors)
+CFLAGS=-O3 -w -DREDIRECT_MALLOC=GC_malloc -DIGNORE_FREE -Wno-incompatible-pointer-types -Wno-int-conversion
+CFLAGS=-O3 -w -Wno-incompatible-pointer-types -Wno-int-conversion
 
 
 # XXX install these somewhere, eg ~/bin at least
@@ -125,7 +126,7 @@ clean:
 		bst1.h wam.h testio.h isort.h isort.c testuf testuf.c testuf.h \
 		bst1.c cord_poly.c bst_a.c cord.c ho.c state.c state.h \
 		absshare.c eval.c evalp.c queue_du.c queue_du.h tuple.c tuple.h \
-		union_find.c union_find.h random.c random.h \
+		union_find.c union_find.h random.c random.h rev.h rev.c \
 		array.c array.h adtpp.errs
 	rm -if testio bst p1bst pbst isort bst_poly bst_count
 	rm -if tmp* a.out errs

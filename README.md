@@ -1,4 +1,4 @@
-# Pawns, version 1.241204
+# Pawns, version 1.250416
 
 Pawns (Pointer Assignment Without Nasty Surprises) is a
 declarative/imperative language. It supports typical features of a strict
@@ -50,7 +50,7 @@ The system is also not packaged well currently. My development machine
 is laptop running Ubuntu. I've not ported it elsewhere but after doing
 several years worth of upgrades it still built with no problems so the
 Ubuntu build seems to be on solid foundations.  If you can't get it to
-work on your chosen platform I'll gladly return your money but I can't
+work on your chosen platform I will gladly return your money but not
 return your time:(
 It needs
 
